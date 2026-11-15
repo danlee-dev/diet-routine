@@ -1,12 +1,14 @@
 // The one active run. GPS comes through a TaskManager location task (keeps running with the screen locked,
 // "When In Use" permission is enough because the run starts in the foreground). Every fix goes into the
 // RunTracker from @diet/core, and the recorded events are saved so a run survives the app being killed.
+// With a barometer, fix altitudes come from it instead of GPS (motion.ts); the pedometer gives cadence.
 import { AppState } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import Storage from 'expo-sqlite/kv-store';
-import { replayRun, runConfigFor, RunTracker, type GeoFix, type LatLng, type RunEvent, type RunLive, type RunSummary, type Split } from '@diet/core';
+import { replayRun, RUN_CONFIG, runConfigFor, RunTracker, type GeoFix, type LatLng, type RunConfig, type RunEvent, type RunLive, type RunSummary, type Split } from '@diet/core';
 import { cueSplit, cueState } from './cues';
+import { BARO_CONFIG, motion } from './motion';
 
 export const RUN_TASK = 'dr-run-location';
 const ACTIVE_KEY = 'dr:run:active:v1';
@@ -40,6 +42,10 @@ export interface FinishedRun {
   startedAt: Date;
   endedAt: Date;
   summary: RunSummary;
+  /** timestamped fixes worth drawing (accurate, not manually paused) for the Apple Health route */
+  route: GeoFix[];
+  /** altitudes are barometric, relative to the start (not height above sea level) */
+  baro: boolean;
 }
 
 const TASK_OPTIONS: Location.LocationTaskOptions = {
@@ -60,7 +66,22 @@ const pack = (e: RunEvent): Packed =>
 const unpack = (p: Packed): RunEvent =>
   p[0] === 'f' ? { k: 'fix', f: { t: p[1], lat: p[2], lng: p[3], acc: p[4], alt: p[5], altAcc: p[6], speed: p[7] } } : { k: p[0] === 'p' ? 'pause' : 'resume', t: p[1] };
 
-interface Persisted { v: 1; id: string; kind: RunKind; startedAt: number; paused: boolean; events: Packed[] }
+interface Persisted { v: 1; id: string; kind: RunKind; startedAt: number; paused: boolean; events: Packed[]; baro?: boolean }
+
+/** Tracker settings for a run: walk thresholds, and the finer elevation step when altitude is barometric. */
+const configFor = (kind: RunKind, baro: boolean): Partial<RunConfig> => ({ ...runConfigFor(kind), ...(baro ? BARO_CONFIG : {}) });
+
+/** Fixes for the Health route: accurate ones outside manual pauses (auto-pauses are standing still). */
+function routeFixes(events: RunEvent[]): GeoFix[] {
+  const out: GeoFix[] = [];
+  let paused = false;
+  for (const e of events) {
+    if (e.k === 'pause') paused = true;
+    else if (e.k === 'resume') paused = false;
+    else if (!paused && (e.f.acc ?? RUN_CONFIG.assumedAccuracy) <= RUN_CONFIG.maxAccuracy) out.push(e.f);
+  }
+  return out;
+}
 
 const toFix = (l: Location.LocationObject): GeoFix => ({
   lat: l.coords.latitude, lng: l.coords.longitude, t: l.timestamp, acc: l.coords.accuracy,
@@ -80,6 +101,9 @@ class RunSession {
   /** bumped by coolDown, so a watch that resolves after the screen closed is removed at once */
   private watchToken = 0;
   private lastSave = 0;
+  /** altitude for this run comes from the barometer */
+  private baro = false;
+  private motionOn = false;
   readonly ready: Promise<void>;
 
   constructor() {
@@ -135,12 +159,34 @@ class RunSession {
     if (!(await this.ensurePermission())) return;
     this.coolDown();
     const startedAt = Date.now();
-    this.tracker = new RunTracker(startedAt, runConfigFor(kind));
+    this.baro = motion.hasBarometer();
+    this.tracker = new RunTracker(startedAt, configFor(kind, this.baro));
     this.events = [];
+    this.startMotion(startedAt, null);
     this.set({ phase: 'recording', id, kind, startedAt, paused: false, live: this.tracker.live(), segments: [], lastFixAt: null, error: null });
     this.persist(true);
     cueState('start', kind);
     await this.ensureUpdates();
+  }
+
+  private startMotion(startedAt: number, altitudeBaseline: number | null) {
+    motion.start(startedAt, altitudeBaseline);
+    this.motionOn = true;
+  }
+
+  private stopMotion() {
+    if (!this.motionOn) return;
+    motion.stop();
+    this.motionOn = false;
+  }
+
+  /** Last barometric altitude recorded, so sensors restarted after a relaunch continue from it. */
+  private lastAltitude(): number | null {
+    for (let i = this.events.length - 1; i >= 0; i--) {
+      const e = this.events[i]!;
+      if (e.k === 'fix' && e.f.alt != null) return e.f.alt;
+    }
+    return null;
   }
 
   private async ensureUpdates(): Promise<void> {
@@ -169,6 +215,7 @@ class RunSession {
     this.persist(true);
     cueState('resume', this.snap.kind);
     void this.ensureUpdates(); // a run restored long after a crash comes back paused with GPS off
+    if (!this.motionOn && this.snap.startedAt != null) this.startMotion(this.snap.startedAt, this.lastAltitude());
   }
 
   /**
@@ -181,12 +228,15 @@ class RunSession {
     if (!tr || !id || startedAt == null) return null;
     this.persist(true);
     await this.stopUpdates();
+    this.stopMotion();
     const endedAt = Date.now();
     const summary = tr.summary(endedAt);
+    const route = routeFixes(this.events);
+    const baro = this.baro;
     this.tracker = null;
     this.events = [];
     this.set({ ...idle(this.snap.permission) });
-    return { id, kind, startedAt: new Date(startedAt), endedAt: new Date(endedAt), summary };
+    return { id, kind, startedAt: new Date(startedAt), endedAt: new Date(endedAt), summary, route, baro };
   }
 
   /** Drop the saved events once the finished run is in the store (or was too short to keep). */
@@ -196,6 +246,7 @@ class RunSession {
 
   async discard(): Promise<void> {
     await this.stopUpdates();
+    this.stopMotion();
     this.tracker = null;
     this.events = [];
     this.set({ ...idle(this.snap.permission) });
@@ -217,7 +268,14 @@ class RunSession {
     let accepted = false;
     for (const l of [...locations].sort((a, b) => a.timestamp - b.timestamp)) {
       // feed the tracker exactly what is persisted, so a run rebuilt after a restart matches the live one
-      const ev = unpack(pack({ k: 'fix', f: toFix(l) }));
+      const f = toFix(l);
+      if (this.baro) {
+        // barometric altitude only: mixing in GPS altitude would add its offset to the gain
+        const alt = motion.altitudeAt(l.timestamp);
+        f.alt = alt;
+        f.altAcc = alt == null ? null : 1;
+      }
+      const ev = unpack(pack({ k: 'fix', f }));
       if (ev.k !== 'fix') continue;
       this.events.push(ev);
       const res = tr.ingest(ev.f);
@@ -237,7 +295,7 @@ class RunSession {
     if (phase !== 'recording' || !id || startedAt == null) return;
     if (!now && Date.now() - this.lastSave < SAVE_EVERY_MS) return;
     this.lastSave = Date.now();
-    const data: Persisted = { v: 1, id, kind, startedAt, paused, events: this.events.map(pack) };
+    const data: Persisted = { v: 1, id, kind, startedAt, paused, events: this.events.map(pack), baro: this.baro };
     void Storage.setItem(ACTIVE_KEY, JSON.stringify(data));
   }
 
@@ -253,7 +311,8 @@ class RunSession {
       return;
     }
     this.events = p.events.map(unpack);
-    const tracker = replayRun(p.startedAt, this.events, runConfigFor(p.kind));
+    this.baro = !!p.baro;
+    const tracker = replayRun(p.startedAt, this.events, configFor(p.kind, this.baro));
     this.tracker = tracker;
     const lastEv = this.events[this.events.length - 1];
     const lastAt = !lastEv ? p.startedAt : lastEv.k === 'fix' ? lastEv.f.t : lastEv.t;
@@ -264,7 +323,10 @@ class RunSession {
     }
     this.set({ phase: 'recording', id: p.id, kind: p.kind, startedAt: p.startedAt, paused: tracker.state === 'paused', live: tracker.live(), segments: tracker.segments.map((g) => [...g]) });
     if (stale) await this.stopUpdates();
-    else await this.ensureUpdates();
+    else {
+      this.startMotion(p.startedAt, this.lastAltitude());
+      await this.ensureUpdates();
+    }
   }
 }
 

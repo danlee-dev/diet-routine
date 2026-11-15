@@ -1,6 +1,6 @@
 // Runs by day and the kcal they give back to the day's food budget. Kept apart from run.ts so the day view
 // (model.ts) can use it without an import cycle.
-import { keyOf, runKcalCredit, RUN_CREDIT_RATIO, type ProfileRow, type RunRow } from '@diet/core';
+import { keyOf, runKcalCredit, RUN_CREDIT_RATIO, type ProfileRow, type RunRow, type WorkoutRow } from '@diet/core';
 import type { Env } from './model';
 
 /** Local calendar day a run belongs to (the day it started). */
@@ -19,8 +19,14 @@ export function runCreditRatio(env: Env): number {
   return prefs?.run_credit_ratio != null && Number.isFinite(r) ? r : RUN_CREDIT_RATIO;
 }
 
-/** kcal added to the day's target by that day's runs. */
+/**
+ * kcal added to the day's target by that day's runs, and by workouts read from Apple Health (an Apple Watch
+ * or another app; source 'health'), which count the same way. Home workouts give nothing back.
+ */
 export function runCredit(env: Env, date: string): number {
   const ratio = runCreditRatio(env);
-  return runsOn(env, date).reduce((s, r) => s + runKcalCredit(r.kcal, ratio), 0);
+  const runs = runsOn(env, date).reduce((s, r) => s + runKcalCredit(r.kcal, ratio), 0);
+  const other = env.store.where<WorkoutRow>('workouts', (w) => w.date === date && w.source === 'health')
+    .reduce((s, w) => s + runKcalCredit(w.kcal, ratio), 0);
+  return runs + other;
 }

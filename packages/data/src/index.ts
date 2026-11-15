@@ -13,3 +13,4 @@ export * from './records';
 export * from './coachHistory';
 export * from './coachMarks';
 export * from './chat';
+export * from './glance';

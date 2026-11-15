@@ -1,5 +1,6 @@
 // Apple Health bridge. In: today's steps, the latest body mass, last night's sleep end (as a wake time
-// the user confirms). Out: weights logged in the app and finished home workouts, each written once.
+// the user confirms), today's active energy and workouts other apps recorded (Apple Watch). Out: weights
+// logged in the app, finished home workouts, and runs and walks with their GPS route, each written once.
 // Nothing here asks for permission by itself; the settings section calls connectHealth().
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState, Platform } from 'react-native';
@@ -7,10 +8,13 @@ import {
   AuthorizationRequestStatus, AuthorizationStatus, CategoryValueSleepAnalysis, UpdateFrequency, WorkoutActivityType,
   authorizationStatusFor, clearBackgroundTypes, configureBackgroundTypes, deleteObjects, getRequestStatusForAuthorization, isHealthDataAvailable,
   queryCategorySamples, queryQuantitySamples, queryStatisticsForQuantity, requestAuthorization, saveCategorySample, saveQuantitySample,
-  saveWorkoutSample, subscribeToChanges, type QuantitySample,
+  queryWorkoutSamples, saveWorkoutSample, subscribeToChanges, type LocationForSaving, type QuantitySample, type QuantitySampleForSaving,
 } from '@kingstinct/react-native-healthkit';
-import { hhmm, keyOf, parseKey, round1, startOfDay, wakeFromSleep, type WeightRow, type WorkoutRow } from '@diet/core';
-import { setDay, setWake, todayView, type Env } from '@diet/data';
+import Storage from 'expo-sqlite/kv-store';
+import {
+  hhmm, keyOf, parseKey, round1, stableId, startOfDay, wakeFromSleep, type GeoFix, type RunRow, type WeightRow, type WorkoutRow, type WorkoutType,
+} from '@diet/core';
+import { runDate, setDay, setWake, todayView, type Env } from '@diet/data';
 import { devicePref } from './env';
 import { createPrefStore, postWakeSuggestion } from './notifications';
 
@@ -20,6 +24,17 @@ const SLEEP = 'HKCategoryTypeIdentifierSleepAnalysis' as const;
 const WORKOUT = 'HKWorkoutTypeIdentifier' as const;
 const READ = [STEPS, MASS, SLEEP] as const;
 const SHARE = [MASS, WORKOUT] as const;
+const ACTIVE = 'HKQuantityTypeIdentifierActiveEnergyBurned' as const;
+const DISTANCE = 'HKQuantityTypeIdentifierDistanceWalkingRunning' as const;
+const ROUTE = 'HKWorkoutRouteTypeIdentifier' as const;
+/**
+ * Asked apart from READ/SHARE: an install connected before these existed keeps syncing the basics
+ * (healthAccess() stays 'asked') and sees the new sheet only when it saves a run or taps the settings row.
+ */
+const EXTRA_READ = [ACTIVE, WORKOUT] as const;
+// HealthKit rejects a route share request that does not name the workout type in the same call
+const EXTRA_SHARE = [WORKOUT, ROUTE, DISTANCE, ACTIVE] as const;
+const OWN_BUNDLE = 'dev.danlee.dietroutine';
 
 export interface HealthPrefs {
   /** The user connected Apple Health from settings (authorization was requested). */
@@ -30,11 +45,14 @@ export interface HealthPrefs {
   weightIn: boolean;
   weightOut: boolean;
   sleep: boolean;
+  /** home workouts, runs and walks */
   workoutOut: boolean;
+  /** today's active energy and workouts recorded by other apps (Apple Watch) */
+  activityIn: boolean;
 }
 
 export const healthPrefs = createPrefStore<HealthPrefs>('health', {
-  connected: false, connectedOn: null, steps: true, weightIn: true, weightOut: true, sleep: true, workoutOut: true,
+  connected: false, connectedOn: null, steps: true, weightIn: true, weightOut: true, sleep: true, workoutOut: true, activityIn: true,
 });
 
 export const useHealthPrefs = (): HealthPrefs => useSyncExternalStore(healthPrefs.subscribe, healthPrefs.get, healthPrefs.get);
@@ -65,11 +83,44 @@ export function healthWriteAllowed(): { weight: boolean; workout: boolean } {
   };
 }
 
+/** Whether the sheet for active energy, other apps' workouts and run routes was shown. */
+export async function healthExtrasAccess(): Promise<HealthAccess> {
+  if (!healthAvailable()) return 'unavailable';
+  try {
+    const s = await getRequestStatusForAuthorization({ toRead: EXTRA_READ, toShare: EXTRA_SHARE });
+    return s === AuthorizationRequestStatus.unnecessary ? 'asked' : 'notAsked';
+  } catch (e) {
+    if (__DEV__) console.warn('[health] extras status', e);
+    return 'notAsked';
+  }
+}
+
+/** For an install connected before runs and activity were synced: show the sheet for the new types. */
+export async function requestHealthExtras(): Promise<boolean> {
+  if (!healthAvailable() || !healthPrefs.get().connected) return false;
+  try {
+    await requestAuthorization({ toRead: EXTRA_READ, toShare: EXTRA_SHARE });
+  } catch {
+    return false;
+  }
+  healthPrefs.set({}); // re-run the sync hook so it observes the new types
+  return true;
+}
+
+/**
+ * Right after a run is saved: an install connected before routes were synced is asked once for the new
+ * types, so this run lands in Health with its route. HealthKit shows the sheet only the first time.
+ */
+export async function askHealthExtrasForRun(): Promise<void> {
+  if (!healthPrefs.get().connected || (await healthAccess()) !== 'asked') return;
+  if ((await healthExtrasAccess()) === 'notAsked') await requestHealthExtras();
+}
+
 /** Show the Health permission sheet and turn syncing on. Called from the settings section only. */
 export async function connectHealth(env: Env): Promise<boolean> {
   if (!healthAvailable()) return false;
   try {
-    await requestAuthorization({ toRead: READ, toShare: SHARE });
+    await requestAuthorization({ toRead: [...READ, ...EXTRA_READ], toShare: [...SHARE, ...EXTRA_SHARE] });
   } catch {
     return false;
   }
@@ -79,7 +130,7 @@ export async function connectHealth(env: Env): Promise<boolean> {
 
 /** Stop syncing, including the background wake-ups registered at launch. Permissions stay in Settings. */
 export function disconnectHealth(): void {
-  backgroundConfigured = false;
+  backgroundConfigured = 0;
   void clearBackgroundTypes().catch(() => false);
   healthPrefs.set({ connected: false });
 }
@@ -135,6 +186,82 @@ export async function lastNightWake(env: Env): Promise<number | null> {
       .map((s) => ({ start: s.startDate, end: s.endDate, asleep: s.value !== CategoryValueSleepAnalysis.inBed })),
     now,
   );
+}
+
+// ---------------- activity in: active energy, other apps' workouts ----------------
+const activeStore = createPrefStore<{ date: string | null; kcal: number | null }>('health:active', { date: null, kcal: null });
+
+/** Active energy Apple Health counted today (kcal), for display only: the day's food target never adds it. */
+export function useActiveEnergy(env: Env): number | null {
+  'use no memo';
+  const st = useSyncExternalStore(activeStore.subscribe, activeStore.get, activeStore.get);
+  return st.date === todayKey(env) ? st.kcal : null;
+}
+
+async function syncActiveEnergy(env: Env): Promise<void> {
+  const v = todayView(env);
+  const res = await queryStatisticsForQuantity(ACTIVE, ['cumulativeSum'], {
+    filter: { date: { startDate: v.ctx.date, endDate: env.now() } }, unit: 'kcal',
+  });
+  const kcal = Math.round(res.sumQuantity?.quantity ?? 0);
+  const cur = activeStore.get();
+  if (cur.date !== v.ctx.key || cur.kcal !== kcal) activeStore.set({ date: v.ctx.key, kcal });
+}
+
+const WORKOUT_TYPE: Partial<Record<WorkoutActivityType, WorkoutType>> = {
+  [WorkoutActivityType.running]: 'run', [WorkoutActivityType.walking]: 'walk', [WorkoutActivityType.hiking]: 'walk',
+};
+const WORKOUT_NAME: Partial<Record<WorkoutActivityType, string>> = {
+  [WorkoutActivityType.running]: '달리기', [WorkoutActivityType.walking]: '걷기', [WorkoutActivityType.hiking]: '하이킹',
+  [WorkoutActivityType.cycling]: '사이클', [WorkoutActivityType.swimming]: '수영', [WorkoutActivityType.yoga]: '요가',
+  [WorkoutActivityType.pilates]: '필라테스', [WorkoutActivityType.functionalStrengthTraining]: '근력 운동',
+  [WorkoutActivityType.traditionalStrengthTraining]: '근력 운동', [WorkoutActivityType.coreTraining]: '코어 운동',
+  [WorkoutActivityType.highIntensityIntervalTraining]: '인터벌', [WorkoutActivityType.elliptical]: '일립티컬',
+  [WorkoutActivityType.rowing]: '로잉', [WorkoutActivityType.stairClimbing]: '계단 오르기', [WorkoutActivityType.stairs]: '계단 오르기',
+  [WorkoutActivityType.dance]: '댄스', [WorkoutActivityType.mixedCardio]: '유산소',
+};
+
+const overlapS = (r: RunRow, start: Date, end: Date): number => {
+  const a = Math.max(Date.parse(r.started_at), start.getTime());
+  const b = Math.min(Date.parse(r.ended_at ?? r.started_at), end.getTime());
+  return Math.max(0, (b - a) / 1000);
+};
+
+/**
+ * Workouts other apps saved to Health (Apple Watch, NRC, ...) since yesterday become the day's workout
+ * rows (source 'health'), so their kcal counts like a run. Ones this app wrote, and ones that overlap a
+ * run recorded here (phone and watch at once), are skipped; a workout deleted from Health leaves the day.
+ */
+async function importWorkouts(env: Env): Promise<void> {
+  const now = env.now();
+  const from = new Date(startOfDay(now).getTime() - 86_400_000);
+  const list = await queryWorkoutSamples({ limit: 0, ascending: true, filter: { date: { startDate: from, endDate: now } } });
+  const runs = env.store.all<RunRow>('runs');
+  const seen = new Set<string>();
+  for (const w of list) {
+    const ext = String(w.metadata?.HKExternalUUID ?? '');
+    if (ext.startsWith('dr-') || w.sourceRevision?.source?.bundleIdentifier?.startsWith(OWN_BUNDLE)) continue;
+    const durS = Math.round((w.endDate.getTime() - w.startDate.getTime()) / 1000);
+    if (durS < 60 || runs.some((r) => overlapS(r, w.startDate, w.endDate) > durS * 0.5)) continue;
+    const id = stableId(`health-workout:${w.uuid}`);
+    seen.add(id);
+    const e = w.totalEnergyBurned;
+    const kcal = e ? Math.round(e.unit === 'kJ' ? e.quantity / 4.184 : e.quantity) : null;
+    const row: Omit<WorkoutRow, 'updated_at'> = {
+      id, date: keyOf(w.startDate), type: WORKOUT_TYPE[w.workoutActivityType] ?? 'other',
+      started_at: w.startDate.toISOString(), ended_at: w.endDate.toISOString(), duration_s: durS, rounds: null,
+      kcal: kcal && kcal > 0 ? kcal : null, source: 'health', run_id: null,
+      note: `${w.sourceRevision?.source?.name ?? '건강 앱'} · ${WORKOUT_NAME[w.workoutActivityType] ?? '운동'}`,
+    };
+    const cur = env.store.get<WorkoutRow>('workouts', id);
+    if (!cur || cur.kcal !== row.kcal || cur.ended_at !== row.ended_at || cur.type !== row.type || cur.note !== row.note) {
+      env.store.put<WorkoutRow>('workouts', row);
+    }
+  }
+  const fromKey = keyOf(from);
+  for (const r of env.store.where<WorkoutRow>('workouts', (x) => x.source === 'health' && x.date >= fromKey)) {
+    if (!seen.has(r.id)) env.store.remove('workouts', r.id);
+  }
 }
 
 // ---------------- wake suggestion (confirm, never silent) ----------------
@@ -233,6 +360,99 @@ async function exportWorkouts(env: Env, since: string): Promise<void> {
   }
 }
 
+// ---------------- runs out (with the route) ----------------
+// The finished run's timestamped fixes are kept on the device until the run is written to Health, because
+// the synced row only has the simplified route without times.
+type PackedFix = [number, number, number, number | null, number | null, number | null];
+const ROUTE_KEY = (id: string) => `dr:health:route:${id}`;
+const ROUTE_IDS = 'health:routeIds';
+const RUN_LEDGER = 'health:runs';
+const r7 = (x: number) => Math.round(x * 1e7) / 1e7;
+const r1 = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? null : Math.round(x * 10) / 10);
+
+/**
+ * Keep a finished run's route for Apple Health. `altitudeValid` is false when altitudes are barometric
+ * (relative to the start), which Health would read as height above sea level.
+ */
+export function stashRunRoute(runId: string, fixes: GeoFix[], altitudeValid: boolean): void {
+  if (Platform.OS !== 'ios' || fixes.length < 2) return;
+  const packed: PackedFix[] = fixes.map((f) => [f.t, r7(f.lat), r7(f.lng), altitudeValid ? r1(f.alt) : null, r1(f.acc), r1(f.speed)]);
+  try { Storage.setItemSync(ROUTE_KEY(runId), JSON.stringify(packed)); } catch { return; }
+  const ids = devicePref.get<string[]>(ROUTE_IDS, []).filter((x) => x !== runId);
+  ids.push(runId);
+  // a few runs saved while Health is not connected are kept; older ones are dropped
+  for (const old of ids.splice(0, Math.max(0, ids.length - 10))) dropRoute(old);
+  devicePref.set(ROUTE_IDS, ids);
+}
+
+function takeRoute(runId: string): LocationForSaving[] {
+  try {
+    const raw = Storage.getItemSync(ROUTE_KEY(runId));
+    const packed = raw ? (JSON.parse(raw) as PackedFix[]) : [];
+    return packed.map(([t, lat, lng, alt, acc, speed]) => ({
+      latitude: lat, longitude: lng, date: new Date(t),
+      altitude: alt ?? 0, verticalAccuracy: alt == null ? -1 : 5, // negative: altitude unknown
+      horizontalAccuracy: acc ?? 10, speed: speed != null && speed >= 0 ? speed : -1, course: -1,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function dropRoute(runId: string): void {
+  try { Storage.removeItemSync(ROUTE_KEY(runId)); } catch { /* gone */ }
+  devicePref.set(ROUTE_IDS, devicePref.get<string[]>(ROUTE_IDS, []).filter((x) => x !== runId));
+}
+
+/**
+ * Runs and walks since connecting become Health workouts (running / walking) with distance and active
+ * energy, plus the GPS route when it is still on this device, so the Fitness app and activity rings see
+ * them. A run deleted in the app is deleted from Health.
+ */
+async function exportRuns(env: Env, since: string, extras: boolean): Promise<void> {
+  const ledger = devicePref.get<Record<string, string>>(RUN_LEDGER, {});
+  const live = new Set<string>();
+  for (const r of env.store.all<RunRow>('runs')) {
+    if (runDate(r) < since) continue;
+    live.add(r.id);
+    if (ledger[r.id] || r.health_uuid || !r.ended_at) continue;
+    const start = new Date(r.started_at);
+    const end = new Date(r.ended_at);
+    const kcal = Math.round(r.kcal ?? 0);
+    // samples need the extra share types; without them the workout still carries its totals
+    const samples: QuantitySampleForSaving[] = !extras ? [] : [
+      { quantityType: DISTANCE, quantity: r.distance_m, unit: 'm', startDate: start, endDate: end },
+      ...(kcal > 0 ? [{ quantityType: ACTIVE, quantity: kcal, unit: 'kcal', startDate: start, endDate: end }] : []),
+    ];
+    let uuid: string;
+    try {
+      const w = await saveWorkoutSample(r.kind === 'walk' ? WorkoutActivityType.walking : WorkoutActivityType.running, samples, start, end,
+        { distance: r.distance_m, energyBurned: kcal }, {
+          HKExternalUUID: `dr-run-${r.id}`, HKSyncIdentifier: `dr-run-${r.id}`, HKSyncVersion: 1, HKIndoorWorkout: false,
+        });
+      uuid = w.uuid;
+      ledger[r.id] = uuid;
+      devicePref.set(RUN_LEDGER, ledger);
+      const route = takeRoute(r.id);
+      if (extras && route.length > 1 && authorizationStatusFor(ROUTE) === AuthorizationStatus.sharingAuthorized) {
+        await w.saveWorkoutRoute(route).catch((e: unknown) => { if (__DEV__) console.warn('[health] route', e); });
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[health] run', e);
+      continue; // one bad row must not block the others
+    }
+    dropRoute(r.id);
+    env.store.put<RunRow>('runs', { ...r, health_uuid: uuid });
+  }
+  // rows are only soft-deleted, never dropped, so a ledger entry without a live run was deleted in the app
+  for (const [id, uuid] of Object.entries(ledger)) {
+    if (live.has(id)) continue;
+    await deleteObjects(WORKOUT, { uuid }).catch(() => 0);
+    delete ledger[id];
+    devicePref.set(RUN_LEDGER, ledger);
+  }
+}
+
 // ---------------- sync ----------------
 let chain: Promise<void> = Promise.resolve();
 function serial(task: () => Promise<void>): Promise<void> {
@@ -248,6 +468,10 @@ export function pullHealth(env: Env): Promise<void> {
     if (p.steps) await syncSteps(env).catch(() => undefined);
     if (p.weightIn) await importWeight(env).catch(() => undefined);
     if (p.sleep) await suggestWake(env).catch(() => undefined);
+    if (p.activityIn && (await healthExtrasAccess()) === 'asked') {
+      await syncActiveEnergy(env).catch(() => undefined);
+      await importWorkouts(env).catch((e: unknown) => { if (__DEV__) console.warn('[health] workouts in', e); });
+    }
   });
 }
 
@@ -258,7 +482,10 @@ export function pushHealth(env: Env): Promise<void> {
     if (!p.connected || !p.connectedOn || !healthAvailable() || (await healthAccess()) !== 'asked') return;
     const allowed = healthWriteAllowed();
     if (p.weightOut && allowed.weight) await exportWeights(env, p.connectedOn);
-    if (p.workoutOut && allowed.workout) await exportWorkouts(env, p.connectedOn);
+    if (p.workoutOut && allowed.workout) {
+      await exportWorkouts(env, p.connectedOn);
+      await exportRuns(env, p.connectedOn, (await healthExtrasAccess()) === 'asked');
+    }
   });
 }
 
@@ -267,7 +494,8 @@ export function pushHealth(env: Env): Promise<void> {
  * (observer queries, plus background delivery so a finished night of sleep or new steps wake the app),
  * and pushes new app weights and workouts when the store changes.
  */
-let backgroundConfigured = false;
+/** number of types registered for background delivery this launch (0 = none) */
+let backgroundConfigured = 0;
 
 export function useHealthSync(env: Env | null): void {
   useEffect(() => {
@@ -282,13 +510,17 @@ export function useHealthSync(env: Env | null): void {
       if (!healthPrefs.get().connected) return;
       // a type we never asked for crashes HealthKit queries: only observe once the sheet was shown
       if ((await healthAccess()) !== 'asked' || mine !== run) return;
+      // the activity types only once their sheet was shown (same crash rule)
+      const extras = (await healthExtrasAccess()) === 'asked';
+      if (mine !== run) return;
+      const observed = extras ? [...READ, ...EXTRA_READ] : [...READ];
       // configure first: it tears down and re-registers the launch observers, which drops JS callbacks
-      // attached before it. Once per launch is enough (it is persisted natively).
-      if (!backgroundConfigured) {
-        backgroundConfigured = await configureBackgroundTypes([...READ], UpdateFrequency.hourly).catch(() => false);
+      // attached before it. Once per launch is enough (it is persisted natively), unless the types grew.
+      if (backgroundConfigured !== observed.length) {
+        backgroundConfigured = (await configureBackgroundTypes(observed, UpdateFrequency.hourly).catch(() => false)) ? observed.length : 0;
         if (mine !== run) return;
       }
-      subs = READ.map((t) => subscribeToChanges(t, () => { void pullHealth(env); }));
+      subs = observed.map((t) => subscribeToChanges(t, () => { void pullHealth(env); }));
       void pullHealth(env);
       void pushHealth(env);
     };

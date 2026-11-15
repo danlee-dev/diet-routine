@@ -14,6 +14,7 @@ import { Icon } from '@/components/Icon';
 import { AmrapPlayer } from '@/components/AmrapPlayer';
 import { VoiceToggle } from '@/components/VoiceToggle';
 import { sayWorkout, stopWorkoutVoice, useWorkoutVoice } from '@/lib/workoutVoice';
+import { restActivity } from '@/lib/native/activities';
 
 type Phase = 'work' | 'hold' | 'rest' | 'done';
 const C = 2 * Math.PI * 104;
@@ -51,9 +52,10 @@ function RoundsPlayer() {
   const items = v.routines[key].items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
   const cur = items[idx]!;
   const voice = useWorkoutVoice();
+  const firstMove = `${items[0]!.name} ${items[0]!.n}${items[0]!.unit}`;
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
-  useEffect(() => () => { stop(); stopWorkoutVoice(); }, []);
+  useEffect(() => () => { stop(); stopWorkoutVoice(); restActivity.end(); }, []);
   // spoken cues: the move and reps when it comes up (the round on its first move), 3-2-1 at the end of holds and rests
   const lastMove = useRef('');
   useEffect(() => {
@@ -79,7 +81,12 @@ function RoundsPlayer() {
   const next = () => {
     stop();
     if (idx < items.length - 1) { setIdx(idx + 1); setPhase('work'); }
-    else if (round < rounds) { setPhase('rest'); sayWorkout(cueRest(60, items[0])); run(60, () => { sayWorkout(cueRoundGo); setRound((r) => r + 1); setIdx(0); setPhase('work'); buzz(); }); }
+    else if (round < rounds) {
+      setPhase('rest');
+      sayWorkout(cueRest(60, items[0]));
+      run(60, () => { restActivity.end(); sayWorkout(cueRoundGo); setRound((r) => r + 1); setIdx(0); setPhase('work'); buzz(); });
+      restActivity.show(end.current, firstMove); // the rest countdown on the lock screen and Dynamic Island
+    }
     else { setPhase('done'); completeWorkout(env, v.ctx.key, key, { rounds, startedAt: started.current ?? new Date(), endedAt: new Date() }); sayWorkout(cueDone(rounds)); buzz(); }
   };
   const ring = (
@@ -129,8 +136,8 @@ function RoundsPlayer() {
           : <Btn icon="check" label={`${cur.n}${cur.unit.replace(' (양쪽)', '')} 했어요`} style={{ height: 56 }} onPress={next} />)}
         {phase === 'hold' && <Btn icon="check" label="끝났어요" style={{ height: 56 }} onPress={next} />}
         {phase === 'rest' && <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'center' }}>
-          <Btn kind="ghost" label="+15초" onPress={() => { end.current += 15000; setLeft((l) => l + 15); setTotal((x) => x + 15); }} />
-          <Btn icon="skip-forward" label="바로 시작" onPress={() => { stop(); stopWorkoutVoice(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }} />
+          <Btn kind="ghost" label="+15초" onPress={() => { end.current += 15000; setLeft((l) => l + 15); setTotal((x) => x + 15); restActivity.show(end.current, firstMove); }} />
+          <Btn icon="skip-forward" label="바로 시작" onPress={() => { stop(); stopWorkoutVoice(); restActivity.end(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }} />
         </View>}
         {phase === 'done' && (postDone
           ? <Btn label="닫기" style={{ height: 56 }} onPress={() => router.back()} />

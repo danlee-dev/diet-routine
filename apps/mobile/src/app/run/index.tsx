@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { clockText, keyOf, kmText, paceText, runKcal, type Split } from '@diet/core';
 import { runsList, saveRun, weightFor } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { devicePref } from '@/lib/env';
+import { askHealthExtrasForRun, stashRunRoute } from '@/lib/health';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn, useToast } from '@/components/ui';
@@ -15,11 +16,29 @@ import { cueFinish, setVoiceEnabled, voiceEnabled } from '@/lib/run/cues';
 import { useRunClock, useRunSession, runWhen } from '@/lib/run/hooks';
 import { RunMap } from '@/lib/run/RunMap';
 import { HoldButton } from '@/lib/run/HoldButton';
+import { motion, useCadence } from '@/lib/run/motion';
+import { DarouNative } from '../../../modules/darou-native';
 
 const RECORDING_RED = '#FF3B30';
 
 export default function RunScreen() {
   const s = useRunSession();
+  const env = useEnv();
+  // "달리기 시작" from Siri, Shortcuts or the Action button: start right away (a run already going just shows).
+  // It waits until location permission is known, so it does not race the permission prompt warmUp opens.
+  const { start } = useLocalSearchParams<{ start?: string }>();
+  const pendingStart = useRef<RunKind | null>(null);
+  useEffect(() => {
+    if (start !== 'run' && start !== 'walk') return;
+    pendingStart.current = start;
+    router.setParams({ start: undefined });
+  }, [start]);
+  useEffect(() => {
+    const kind = pendingStart.current;
+    if (!kind || s.permission === 'unknown') return;
+    pendingStart.current = null;
+    if (s.phase === 'idle' && s.permission === 'granted') void runSession.start(kind, env.newId());
+  }, [start, s.phase, s.permission, env]);
   useEffect(() => {
     if (s.phase === 'recording') return;
     void runSession.warmUp();
@@ -93,6 +112,8 @@ function Recording({ s }: { s: RunSnapshot }) {
   const { toast } = useToast();
   const { height } = useWindowDimensions();
   const clock = useRunClock(s);
+  const cadence = useCadence();
+  const [hasPedometer] = useState(() => DarouNative.pedometerAvailable());
   const [voice, setVoice] = useState(voiceEnabled);
   const live = s.live;
   const weight = weightFor(env, keyOf(s.startedAt ? new Date(s.startedAt) : env.now()));
@@ -111,11 +132,14 @@ function Recording({ s }: { s: RunSnapshot }) {
       router.back();
       return;
     }
-    const row = saveRun(env, res);
+    const avgCadence = await motion.averageCadence(res.startedAt.getTime(), res.endedAt.getTime(), res.summary.moving_s);
+    const row = saveRun(env, { ...res, avgCadence });
+    stashRunRoute(row.id, res.route, !res.baro); // Apple Health gets the workout with this route once connected
     await env.store.flush();
     await runSession.forget();
     cueFinish(kmText(row.distance_m));
     router.replace({ pathname: '/run/summary', params: { id: row.id, fresh: '1' } });
+    void askHealthExtrasForRun();
   };
   const toggleVoice = () => { const next = !voice; setVoice(next); setVoiceEnabled(next); void Haptics.selectionAsync(); };
 
@@ -145,7 +169,9 @@ function Recording({ s }: { s: RunSnapshot }) {
         <View style={{ flexDirection: 'row', marginTop: 18 }}>
           <Stat t={t} label="칼로리" value={`${kcal}`} />
           <Stat t={t} label="오른 높이" value={`${live?.elevGain ?? 0}m`} />
-          <Stat t={t} label="직전 1km" value={lastSplit ? paceText(lastSplit.pace) : `-'--"`} />
+          {hasPedometer
+            ? <Stat t={t} label="케이던스" value={cadence != null && live?.status === 'moving' && !s.paused ? `${cadence}` : '-'} />
+            : <Stat t={t} label="직전 1km" value={lastSplit ? paceText(lastSplit.pace) : `-'--"`} />}
         </View>
         {s.error ? <Text lineBreakStrategyIOS="hangul-word" style={{ color: t.muted, fontSize: 12.5, marginTop: 14 }}>위치 기록을 시작하지 못했습니다: {s.error}</Text> : null}
       </View>
