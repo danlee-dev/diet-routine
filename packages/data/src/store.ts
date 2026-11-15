@@ -252,6 +252,19 @@ export class DataStore {
     this.scheduleSave();
   }
 
+  /** Push pending rows and pull anything newer: pull-to-refresh and coming back to the foreground. */
+  async refresh(): Promise<void> {
+    if (!this.client) return;
+    this.setSync('syncing');
+    try {
+      await this.push();
+      await this.pull();
+      this.setSync('synced');
+    } catch (e) {
+      this.setSync('offline', e instanceof Error ? e.message : String(e));
+    }
+  }
+
   /** Pull rows changed since the last cursor for every table. */
   async pull(): Promise<void> {
     const client = this.client;

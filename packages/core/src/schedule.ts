@@ -1,5 +1,5 @@
 // Meal timing from wake time, today's plan for a situation, and progress totals.
-import { EATOUT, MEALS, ORDER, SCEN, type EatoutSlot, type MealDef, type MealKey, type ScenId } from './data';
+import { EATOUT, MEALS, ORDER, SCEN, type EatoutSlot, type MealDef, type MealKey, type PlanItem, type ScenId } from './data';
 import type { MealEntryRow } from './db';
 import { durText, hhmm } from './util';
 
@@ -144,4 +144,24 @@ export const SKIP_ADVICE: Record<MealKey, string> = {
 /** Protein left on the table after skipping, against the daily floor. */
 export function proteinGap(totalProtein: number, floor: number): number {
   return Math.max(0, Math.round(floor - totalProtein));
+}
+
+/**
+ * What was actually eaten when only some planned items were: per-item numbers scaled to the meal's current
+ * totals (so edits and adjustments stay consistent), or an even split when items carry no numbers.
+ */
+export function partialMeal(m: Pick<PlannedMeal, 'name' | 'items' | 'kcal' | 'protein'>, keep: boolean[]): { kcal: number; protein: number; kept: PlanItem[]; dropped: PlanItem[] } {
+  const kept = m.items.filter((_, i) => keep[i]);
+  const dropped = m.items.filter((_, i) => !keep[i]);
+  if (!m.items.length) return { kcal: 0, protein: 0, kept, dropped };
+  const known = m.items.every((x) => x.kcal != null);
+  const sumK = m.items.reduce((s, x) => s + (x.kcal ?? 0), 0);
+  const sumP = m.items.reduce((s, x) => s + (x.protein ?? 0), 0);
+  if (known && sumK > 0) {
+    const kK = kept.reduce((s, x) => s + (x.kcal ?? 0), 0);
+    const kP = kept.reduce((s, x) => s + (x.protein ?? 0), 0);
+    return { kcal: Math.round((kK * m.kcal) / sumK), protein: sumP > 0 ? Math.round((kP * m.protein) / sumP) : 0, kept, dropped };
+  }
+  const r = kept.length / m.items.length;
+  return { kcal: Math.round(m.kcal * r), protein: Math.round(m.protein * r), kept, dropped };
 }
