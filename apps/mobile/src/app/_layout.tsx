@@ -7,6 +7,7 @@ import { adoptLegacyProfile, profileState, type Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
 import { EnvContext } from '@/lib/hooks';
 import { ToastProvider } from '@/components/ui';
+import '@/lib/run/session'; // defines the background location task at startup
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -74,6 +75,7 @@ export default function RootLayout() {
             <Stack.Screen name="auth/callback" options={{ animation: 'none' }} />
             <Stack.Screen name="workout" options={{ presentation: 'fullScreenModal', headerShown: false }} />
             <Stack.Screen name="coach" options={{ presentation: 'modal', headerShown: false }} />
+            <Stack.Screen name="run" options={{ presentation: 'fullScreenModal', headerShown: false }} />
           </Stack>
         </ToastProvider>
       </EnvContext.Provider>
