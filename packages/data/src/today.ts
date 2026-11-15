@@ -5,6 +5,7 @@ import {
   type RoutineKey, type Slot,
 } from '@diet/core';
 import { ordersDue, workoutOn, type Env, type TodayView } from './model';
+import { stockAlertsFor } from './pantry';
 
 export type Focus =
   | { kind: 'wake' }
@@ -109,6 +110,12 @@ export interface Recommendation {
 
 /** Exactly one suggestion for today, by priority. */
 export function recommendation(env: Env, v: TodayView): Recommendation {
+  // a counted item running out beats a date-based reminder: it is what the user actually has left
+  const low = stockAlertsFor(env);
+  if (low.length) {
+    const a = low[0]!;
+    return { id: `stock:${a.id}`, icon: 'shopping-basket', title: a.title, body: low.length > 1 ? `${a.detail} · 곧 떨어지는 것 ${low.length}개` : a.detail, action: { label: '쿠팡 열기', kind: 'order', url: a.url } };
+  }
   const due = ordersDue(env);
   if (due.length) {
     const d = due[0]!;

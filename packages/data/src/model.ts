@@ -10,6 +10,7 @@ import {
 import type { DataStore } from './store';
 import { adjustmentsFor, effectivePlan } from './plan';
 import { runCredit } from './runCredit';
+import { countedIds } from './pantryRecords';
 
 export interface Env {
   store: DataStore;
@@ -165,13 +166,15 @@ export function weightData(env: Env, dayIdx: number) {
   return { series, avg: rolling7(series), stats: weightStats(env.program, series) };
 }
 
+/** Date-based reorders due around today. Products whose count is kept (pantry) are left to their stock alert. */
 export const ordersDue = (env: Env) => {
   const ctx = dayCtx(env.program, env.now());
   const custom = effectivePlan(env, ctx.key)?.shop;
+  const counted = countedIds(env);
   return dueOrders({
     dayIdx: ctx.idx, dow: ctx.dow, dayKey: ctx.key, done: checklistSet(env, 'cycle'),
     ...(custom ? { cycle: custom.cycle, weeklyNames: custom.week.map((s) => s.name) } : {}),
-  });
+  }).filter((d) => !counted.has(d.id.split('@')[0]!));
 };
 
 // ---------------- actions ----------------

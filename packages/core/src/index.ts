@@ -14,3 +14,5 @@ export * from './targets';
 export * from './onboarding';
 export * from './run';
 export * from './reminders';
+export * from './pantry';
+export * from './weather';

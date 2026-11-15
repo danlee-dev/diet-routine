@@ -5,3 +5,7 @@ export * from './plan';
 export * from './coach';
 export * from './profile';
 export * from './run';
+export * from './pantry';
+export * from './presets';
+export * from './weather';
+export * from './records';
