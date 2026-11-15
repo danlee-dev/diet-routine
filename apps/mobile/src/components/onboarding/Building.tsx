@@ -34,17 +34,23 @@ export function ledgerOf(a: OnboardingAnswers, g: GeneratedPlan): { label: strin
   ];
 }
 
-export function Building({ answers, base, onDone }: {
+export function Building({ answers, base, cached, onRefined, onDone }: {
   answers: OnboardingAnswers;
   base: GeneratedPlan;
+  /** a refinement this flow already received for the same answers (no second request) */
+  cached: GeneratedPlan | null;
+  onRefined: (plan: GeneratedPlan) => void;
   onDone: (plan: GeneratedPlan, source: 'user' | 'ai') => void;
 }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const reduce = useReducedMotion();
-  const rows = ledgerOf(answers, base);
-  const [shown, setShown] = useState(reduce ? rows.length : 0);
-  const [ai, setAi] = useState<{ state: 'off' | 'running' | 'done' | 'failed'; steps: RefineStep[]; plan: GeneratedPlan | null }>({ state: 'off', steps: [], plan: null });
+  const [shown, setShown] = useState(() => (reduce ? ledgerOf(answers, base).length : 0));
+  const [ai, setAi] = useState<{ state: 'off' | 'running' | 'done' | 'failed'; steps: RefineStep[]; plan: GeneratedPlan | null }>(
+    () => (cached ? { state: 'done', steps: [], plan: cached } : { state: 'off', steps: [], plan: null }),
+  );
+  // the ledger describes the plan the user will get: the refined one once it is here
+  const rows = ledgerOf(answers, ai.plan ?? base);
   const abort = useRef<AbortController | null>(null);
 
   // staged reveal: one ledger line at a time, a light tick each, a success tap at the end
@@ -56,21 +62,26 @@ export function Building({ answers, base, onDone }: {
 
   // coach refinement, only when signed in; any failure keeps the offline plan
   useEffect(() => {
+    if (cached) return;
     let alive = true;
     void signedInToken().then((token) => {
       if (!token || !alive) return;
       const ac = new AbortController();
       abort.current = ac;
-      const timer = setTimeout(() => ac.abort(), 45000);
+      // the route may take minutes (maxDuration 300 s); "기다리지 않고 보기" is always there to move on sooner
+      const timer = setTimeout(() => ac.abort(), 120000);
       setAi({ state: 'running', steps: [], plan: null });
       void refinePlan(answers, base, (s) => {
         if (alive) setAi((cur) => ({ ...cur, steps: cur.steps.some((x) => x.id === s.id) ? cur.steps.map((x) => (x.id === s.id ? s : x)) : [...cur.steps, s] }));
       }, ac.signal).then((plan) => {
         clearTimeout(timer);
+        if (plan) onRefined(plan);
         if (alive) setAi((cur) => ({ ...cur, state: plan ? 'done' : 'failed', plan }));
       });
     });
     return () => { alive = false; abort.current?.abort(); };
+  // cached and onRefined are read once per answers; a new callback identity must not restart the request
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answers, base]);
 
   const ready = shown >= rows.length;

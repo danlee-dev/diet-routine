@@ -67,8 +67,9 @@ export default function RootLayout() {
               <Stack.Screen name="onboarding" />
             </Stack.Protected>
             <Stack.Protected guard={onboarded} redirectTo="/welcome">
-              {/* only ever pushed by the guard (onboarding saved, or a profile pulled after sign-in): fade into Today */}
-              <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+              {/* only ever pushed by the guard (onboarding saved, or a profile pulled after sign-in): fade into Today.
+                  No swipe-back: the guarded welcome can still sit under it in the stack. */}
+              <Stack.Screen name="(tabs)" options={{ animation: 'fade', gestureEnabled: false }} />
             </Stack.Protected>
             <Stack.Screen name="sheet/time" options={sheet('fitToContents', { wheel: true })} />
             <Stack.Screen name="sheet/weight" options={sheet('fitToContents', { wheel: true })} />

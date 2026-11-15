@@ -21,7 +21,7 @@ export interface StepProps {
 }
 
 const range = (a: number, b: number, unit = ''): WheelItem[] => Array.from({ length: b - a + 1 }, (_, i) => ({ v: a + i, t: `${a + i}${unit}` }));
-const AGE = range(14, 90);
+const AGE = range(18, 90); // a calorie cut is not offered to minors
 const HEIGHT = range(130, 210);
 const KG = range(35, 180);
 const DEC = range(0, 9);
@@ -50,7 +50,7 @@ function NameStep({ d, set, advance }: StepProps) {
     <Question title="부를 이름" sub="인사할 때만 씁니다. 비워 둬도 됩니다.">
       <TextInput
         value={d.name}
-        onChangeText={(name) => set({ name: name.slice(0, 12) })}
+        onChangeText={(name) => set({ name: Array.from(name).slice(0, 12).join('') })} // by code point: never half an emoji
         placeholder="이름 또는 별명"
         placeholderTextColor={t.muted}
           selectionColor={t.fg}
@@ -412,4 +412,7 @@ export const SKIPPABLE: Partial<Record<StepId, Partial<Draft>>> = {
 
 export const canContinue = (id: StepId, d: Draft): boolean =>
   id === 'sex' ? d.sex != null : id === 'weight' ? d.goalWeightKg < d.weightKg : true;
+
+/** The first question whose answer cannot be used (edit mode can jump straight to the plan). */
+export const firstInvalid = (d: Draft, steps: StepId[]): number => steps.findIndex((id) => !canContinue(id, d));
 

@@ -1,6 +1,7 @@
 // Optional AI pass over the offline plan, for signed-in users.
-// POST {API}/api/plan/generate with { answers, baseline } -> a GeneratedPlan, as JSON or as an event stream
-// (`status` frames with step labels, then the plan in a `plan` / `result` / `done` frame).
+// POST {API}/api/plan/generate with { answers, baseline }. The live route (apps/web/app/api/plan/generate) streams
+// `status` frames, then `plan` { plan: GeneratedPlan, source: 'ai' | 'baseline' }, then `done`; a JSON body with a
+// GeneratedPlan is also accepted.
 // Anything unexpected (no session, 404, timeout, bad shape) returns null and the offline plan stays.
 import { fetch } from 'expo/fetch';
 import type { GeneratedPlan, OnboardingAnswers } from '@diet/core';
@@ -25,7 +26,8 @@ const isPlan = (x: unknown): x is GeneratedPlan => {
   const g = x as Partial<GeneratedPlan> | null;
   if (!g || typeof g !== 'object' || !g.plan || typeof g.plan !== 'object') return false;
   const meals = g.plan.meals;
-  if (!meals || typeof meals !== 'object' || !Object.keys(meals).length) return false;
+  // all five meals: a missing one would fall back to the owner's built-in meal, which skips the allergy filter
+  if (!meals || typeof meals !== 'object' || ![...MEAL_KEYS].every((k) => k in meals)) return false;
   return Object.entries(meals).every(([k, m]) =>
     MEAL_KEYS.has(k) && !!m && typeof m === 'object' && (m.removed === true || (
       num(m.kcal) && num(m.protein) && Array.isArray(m.items) && m.items.length > 0
@@ -49,8 +51,9 @@ function planIn(x: unknown): GeneratedPlan | null {
 function merged(ai: GeneratedPlan, base: GeneratedPlan): GeneratedPlan {
   const p = ai.plan;
   const str = (v: unknown) => typeof v === 'string' && v.length > 0;
+  const https = (v: unknown) => typeof v === 'string' && v.startsWith('https://'); // opened with Linking
   const shopOk = !!p.shop && [p.shop.now, p.shop.week].every((list) => Array.isArray(list)
-    && list.every((it) => !!it && str(it.id) && str(it.name) && str(it.url) && typeof it.qty === 'string' && num(it.price)));
+    && list.every((it) => !!it && str(it.id) && str(it.name) && https(it.url) && typeof it.qty === 'string' && num(it.price)));
   const WEEK = new Set(['rest', 'A', 'B', 'walk', 'light']);
   const workoutOk = !!p.workout?.week && Object.values(p.workout.week).every((w) => WEEK.has(String(w)))
     && Object.values(p.workout.routines ?? {}).every((r) => !!r && Array.isArray(r.items) && r.items.every((x) => str(x?.name) && num(x?.n) && typeof x?.unit === 'string'));
@@ -119,12 +122,14 @@ export async function refinePlan(
       for (const f of out) {
         let data: unknown;
         try { data = JSON.parse(f.data); } catch { continue; }
-        if (f.event === 'error') return null;
+        if (f.event === 'error') { void reader.cancel(); return null; }
         if (f.event === 'status') {
           const s = data as { id?: string | number; label?: string; state?: string };
           if (s.label) onStep({ id: String(s.id ?? s.label), label: s.label, done: s.state === 'done' });
           continue;
         }
+        // the live route sends { type: 'plan', plan, source }; 'baseline' means its AI step failed: keep ours
+        if ((data as { source?: string } | null)?.source === 'baseline') { void reader.cancel(); return null; }
         found = planIn(data) ?? found;
       }
     }

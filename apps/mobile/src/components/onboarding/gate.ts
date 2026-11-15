@@ -6,15 +6,23 @@ import { adoptLegacyProfile, profileState, type Env } from '@diet/data';
 
 const none = () => () => {};
 
+type Gate = 'ready' | 'new' | 'legacy-local' | 'legacy-account';
+
 export function useOnboarded(env: Env | null): boolean {
-  const state = useSyncExternalStore(
+  const state = useSyncExternalStore<Gate>(
     env ? env.store.subscribe : none,
-    () => (env ? profileState(env.store) : 'ready'),
+    () => {
+      if (!env) return 'ready';
+      const st = profileState(env.store);
+      if (st !== 'legacy') return st;
+      return env.store.currentUserId ? 'legacy-account' : 'legacy-local';
+    },
   );
-  // Records but no profile: the owner's install from before onboarding (also when a sign-in pulls such an
-  // account onto a fresh device). Keep their built-in plan, as the root layout does at startup.
+  // Records but no profile on a signed-out device: the owner's install from before onboarding. Keep their built-in
+  // plan, as the root layout does at startup. A signed-in account in that state (e.g. records written on the web
+  // before it had onboarding) is someone else's: it goes through onboarding instead of getting the owner's numbers.
   useEffect(() => {
-    if (env && state === 'legacy') adoptLegacyProfile(env);
+    if (env && state === 'legacy-local') adoptLegacyProfile(env);
   }, [env, state]);
-  return state !== 'new';
+  return state === 'ready' || state === 'legacy-local';
 }

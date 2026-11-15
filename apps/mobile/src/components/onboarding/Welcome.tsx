@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { profileState } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { getSupabase } from '@/lib/env';
-import { sendEmailCode, signInWithGoogle, useAuthUser, verifyEmailCode } from '@/lib/auth';
+import { sendEmailCode, signInWithGoogle, signOut, useAuthUser, verifyEmailCode } from '@/lib/auth';
 import { R, squircle, useTheme } from '@/lib/theme';
 import { Orb } from '@/components/ui';
 import { Cta, TextButton } from './controls';
@@ -63,9 +63,10 @@ export function Welcome() {
     const check = () => {
       const st = env.store.syncState;
       if (st === 'synced' && env.store.currentUserId) {
-        if (profileState(env.store) === 'new') { setMode('start'); router.push('/onboarding'); }
+        // no profile in the account (records alone count as none: see gate.ts), so the questions make one
+        if (profileState(env.store) !== 'ready') { setMode('start'); openOnboarding(); }
       } else if (st === 'error' || st === 'offline') {
-        setMsg(env.store.lastError ?? '');
+        setMsg('서버에서 기록을 가져오지 못했습니다.');
         setMode('failed');
       }
     };
@@ -77,10 +78,15 @@ export function Welcome() {
 
   const google = async () => {
     setBusy(true); setMsg('');
-    const r = await signInWithGoogle();
-    setBusy(false);
-    if (r.ok) setMode('pulling');
-    else if (!r.cancelled) setMsg(r.error ?? '로그인하지 못했습니다');
+    try {
+      const r = await signInWithGoogle();
+      if (r.ok) setMode('pulling');
+      else if (!r.cancelled) setMsg(r.error ?? '로그인하지 못했습니다');
+    } catch {
+      setMsg('로그인 창을 열지 못했습니다');
+    } finally {
+      setBusy(false);
+    }
   };
   const sendCode = async () => {
     if (!/.+@.+\..+/.test(email.trim())) { setMsg('이메일 주소를 확인해 주세요'); return; }
@@ -96,6 +102,26 @@ export function Welcome() {
     if (r.ok) setMode('pulling'); else setMsg(r.error ?? '코드가 맞지 않습니다');
   };
   const to = (m: Mode) => { setMsg(''); setMode(m); };
+  // one push per tap, even on a fast double tap
+  const leaving = useRef(0);
+  function openOnboarding() {
+    if (Date.now() - leaving.current < 800) return;
+    leaving.current = Date.now();
+    router.push('/onboarding');
+  }
+  // Signed in: start only once the account is known to be empty (a successful pull), so a local plan never
+  // overwrites one the account already has. Signed out: start right away.
+  const start = () => {
+    if (user && !(env.store.syncState === 'synced' && env.store.currentUserId)) { setMode('pulling'); void retry(); return; }
+    openOnboarding();
+  };
+  async function retry() {
+    setMsg(''); setMode('pulling');
+    const supa = getSupabase();
+    const session = supa ? (await supa.auth.getSession()).data.session : null;
+    if (supa && session) void env.store.attach(supa, session.user.id);
+    else setMode('start');
+  }
 
   const input = [{ height: 54, borderRadius: R.md, backgroundColor: t.surface, paddingHorizontal: 18, color: t.fg, fontSize: 17 }, squircle];
   const heading = (s: string, sub?: string) => (
@@ -110,10 +136,15 @@ export function Welcome() {
   if (mode === 'start') {
     actions = (
       <View>
-        <Cta label="시작하기" wide onPress={() => router.push('/onboarding')} />
+        <Cta label="시작하기" wide onPress={start} />
         <View style={{ alignItems: 'center', marginTop: 10 }}>
           {user
-            ? <Text style={{ color: t.muted, fontSize: 13.5, paddingVertical: 8 }}>{user.email ?? '계정'}으로 로그인되어 있습니다</Text>
+            ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text numberOfLines={1} style={{ color: t.muted, fontSize: 13.5, flexShrink: 1 }}>{user.email ?? '계정'}으로 로그인됨</Text>
+                <TextButton label="로그아웃" color={t.fg} onPress={() => void signOut()} />
+              </View>
+            )
             : getSupabase() ? <TextButton label="이미 계정이 있습니다" color={t.fg} onPress={() => to('signin')} /> : null}
         </View>
         <Text style={{ color: t.muted, fontSize: 12.5, textAlign: 'center', marginTop: small ? 6 : 14 }}>로그인하지 않아도 이 기기에서 바로 씁니다.</Text>
@@ -170,8 +201,9 @@ export function Welcome() {
     actions = (
       <View>
         {heading('기록을 가져오지 못했습니다', msg || '연결을 확인하고 다시 시도해 주세요.')}
-        <Cta label="다시 시도" icon={null} wide onPress={() => { setMsg(''); setMode('pulling'); void env.store.refresh(); }} />
-        <View style={{ alignItems: 'center', marginTop: 8 }}><TextButton label="새로 시작하기" onPress={() => { to('start'); router.push('/onboarding'); }} /></View>
+        <Cta label="다시 시도" icon={null} wide onPress={() => void retry()} />
+        {/* no "start fresh" here: while the account's data is unknown, a new plan could overwrite it */}
+        <View style={{ alignItems: 'center', marginTop: 8 }}><TextButton label="로그아웃하고 돌아가기" onPress={() => { void signOut(); to('start'); }} /></View>
       </View>
     );
   }
@@ -192,7 +224,7 @@ export function Welcome() {
 
       <View style={{ flex: 1, paddingTop: insets.top + 14, paddingHorizontal: 24, paddingBottom: insets.bottom + 12 }}>
         <Rise p={p} k={0} reduce={reduce}>
-          <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', letterSpacing: -0.3 }}>감량 루틴</Text>
+          <Text style={{ color: t.fg, fontSize: 18, fontWeight: '600', letterSpacing: 0.4 }}>다루</Text>
         </Rise>
         <View style={{ flex: 1 }} />
         <Rise p={p} k={1} reduce={reduce}>

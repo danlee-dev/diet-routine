@@ -36,6 +36,8 @@ export const emptyDraft = (): Draft => ({
 export const answersOf = (d: Draft): OnboardingAnswers => ({ ...d, sex: d.sex ?? 'male', name: d.name?.trim() || undefined });
 
 const num = (x: unknown, d: number): number => (typeof x === 'number' && Number.isFinite(x) ? x : d);
+/** keep prefilled values inside what the wheels can show */
+const within = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
 
 /** "내 정보 다시 입력": the saved answers, with today's weight from the latest record. */
@@ -47,23 +49,25 @@ export function draftFromProfile(env: Env): Draft {
   const pref = (p.preferences ?? {}) as Partial<OnboardingAnswers>;
   const latest = env.store.all<WeightRow>('weights').sort((x, y) => (x.date < y.date ? 1 : -1))[0];
   const year = env.now().getFullYear();
+  const weight = latest ? Number(latest.kg) : num(a.weightKg, Number(p.start_weight) || d.weightKg);
   return {
     name: a.name ?? p.display_name ?? '',
     sex: oneOf<Sex>(a.sex ?? p.sex, ['male', 'female'], 'male'),
-    age: num(a.age, p.birth_year ? year - Number(p.birth_year) : d.age),
-    heightCm: num(a.heightCm, Number(p.height_cm) || d.heightCm),
-    weightKg: latest ? Number(latest.kg) : num(a.weightKg, Number(p.start_weight) || d.weightKg),
-    goalWeightKg: num(a.goalWeightKg, Number(p.goal_weight) || d.goalWeightKg),
+    // birth year first: a saved age goes stale when the year turns
+    age: within(p.birth_year ? year - Number(p.birth_year) : num(a.age, d.age), 18, 90),
+    heightCm: within(Math.round(num(a.heightCm, Number(p.height_cm) || d.heightCm)), 130, 210),
+    weightKg: within(weight, 35, 180.9),
+    goalWeightKg: within(num(a.goalWeightKg, Number(p.goal_weight) || d.goalWeightKg), 35, 180.9),
     weeks: [4, 8, 12].includes(num(a.weeks, 8)) ? num(a.weeks, 8) : 8,
     activity: oneOf<Activity>(a.activity ?? p.activity, ['sedentary', 'light', 'active'], 'light'),
-    wakeMin: num(a.wakeMin ?? pref.wakeMin, d.wakeMin),
+    wakeMin: within(num(a.wakeMin ?? pref.wakeMin, d.wakeMin), 4 * 60, 12 * 60 + 50),
     eatingOut: oneOf<EatingOut>(a.eatingOut ?? pref.eatingOut, ['rarely', 'lunch', 'dinner', 'often'], d.eatingOut),
     cooking: oneOf<Cooking>(a.cooking ?? pref.cooking, ['none', 'microwave', 'basic'], d.cooking),
     allergies: (Array.isArray(a.allergies ?? pref.allergies) ? (a.allergies ?? pref.allergies)! : []) as Allergen[],
     dislikes: Array.isArray(a.dislikes ?? pref.dislikes) ? (a.dislikes ?? pref.dislikes)! : [],
     workoutPlace: oneOf<WorkoutPlace>(a.workoutPlace ?? pref.workoutPlace, ['home', 'gym', 'walk'], d.workoutPlace),
-    workoutDays: num(a.workoutDays ?? pref.workoutDays, d.workoutDays),
-    budgetWeek: num(a.budgetWeek ?? pref.budgetWeek, d.budgetWeek),
+    workoutDays: within(Math.round(num(a.workoutDays ?? pref.workoutDays, d.workoutDays)), 1, 6),
+    budgetWeek: within(num(a.budgetWeek ?? pref.budgetWeek, d.budgetWeek), 0, 990000),
   };
 }
 

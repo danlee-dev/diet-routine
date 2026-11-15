@@ -12,21 +12,25 @@ import { useTheme } from '@/lib/theme';
 import { Orb } from '@/components/ui';
 import { ORB_TURN_DEG, splashHandoff } from './handoff';
 
+// Safety net: if the first render throws before <Splash> lays out, never leave the native splash up forever.
+setTimeout(() => { void SplashScreen.hideAsync().catch(() => {}); }, 6000);
+
 const NATIVE_IMAGE = 76; // app.json > expo-splash-screen > imageWidth
 const NATIVE_ORB = NATIVE_IMAGE * 0.6; // the orb fills 60% of splash-icon.png
 const DRAW = 400; // the vector orb is drawn large and scaled down, so it stays sharp when it grows into Welcome
 const S0 = NATIVE_ORB / DRAW;
-const WORD = ['감', '량', ' ', '루', '틴'];
+const WORD = ['다', '루']; // 다루 (다이어트 루틴)
+const MID = (WORD.length - 1) / 2;
+const SPREAD = 16; // how far apart the syllables start before they close in
 const out = Easing.out(Easing.cubic);
 const travel = Easing.bezier(0.2, 0, 0, 1);
 
 function Char({ ch, i, p, color }: { ch: string; i: number; p: SharedValue<number>; color: string }) {
   const st = useAnimatedStyle(() => ({
     opacity: p.value,
-    transform: [{ translateX: (i - 2) * 9 * (1 - p.value) }, { translateY: 4 * (1 - p.value) }],
+    transform: [{ translateX: (i - MID) * SPREAD * (1 - p.value) }, { translateY: 4 * (1 - p.value) }],
   }));
-  if (ch === ' ') return <View style={{ width: 6 }} />;
-  return <Animated.Text style={[{ color, fontSize: 21, fontWeight: '600', letterSpacing: -0.3 }, st]}>{ch}</Animated.Text>;
+  return <Animated.Text style={[{ color, fontSize: 23, fontWeight: '600', letterSpacing: 0.6 }, st]}>{ch}</Animated.Text>;
 }
 
 export function Splash() {
