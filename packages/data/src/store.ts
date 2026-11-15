@@ -6,9 +6,9 @@ import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
 export type TableName =
   | 'profiles' | 'days' | 'meal_entries' | 'weights' | 'workouts' | 'checklist'
-  | 'foods' | 'events' | 'memories' | 'plan_adjustments' | 'plans';
+  | 'foods' | 'events' | 'memories' | 'plan_adjustments' | 'plans' | 'runs';
 
-export const TABLES: TableName[] = ['profiles', 'days', 'meal_entries', 'weights', 'workouts', 'checklist', 'foods', 'events', 'memories', 'plan_adjustments', 'plans'];
+export const TABLES: TableName[] = ['profiles', 'days', 'meal_entries', 'weights', 'workouts', 'checklist', 'foods', 'events', 'memories', 'plan_adjustments', 'plans', 'runs'];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Row = Record<string, any> & { updated_at?: string; deleted_at?: string | null };
@@ -26,7 +26,7 @@ export const pkOf = (t: TableName, r: Row): string => {
 
 const CONFLICT: Record<TableName, string> = {
   profiles: 'user_id', days: 'user_id,date', weights: 'user_id,date', checklist: 'user_id,list,item_key',
-  meal_entries: 'id', workouts: 'id', foods: 'id', events: 'id', memories: 'id', plan_adjustments: 'id', plans: 'id',
+  meal_entries: 'id', workouts: 'id', foods: 'id', events: 'id', memories: 'id', plan_adjustments: 'id', plans: 'id', runs: 'id',
 };
 
 export interface Persistence {

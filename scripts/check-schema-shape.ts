@@ -4,8 +4,8 @@
 // Run: pnpm dlx tsx scripts/check-schema-shape.ts
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_PROGRAM } from '@diet/core';
-import { completeWorkout, DataStore, logFood, setDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
+import { DEFAULT_PROGRAM, RunTracker } from '@diet/core';
+import { completeWorkout, DataStore, logFood, saveRun, setDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
 
 const env = Object.fromEntries(
   readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
@@ -24,6 +24,10 @@ logFood(e, { date: d, slot: 'lunch', name: '후라이드 치킨', amount: '반 �
 setWeight(e, d, 75.4);
 toggleChecklist(e, 'shop', 'n1');
 completeWorkout(e, d, 'B', { rounds: 3, startedAt: new Date(), endedAt: new Date() });
+const runStart = new Date(2026, 10, 15, 19, 0);
+const tracker = new RunTracker(runStart.getTime());
+for (let i = 0; i <= 400; i++) tracker.ingest({ lat: 37.5665 + i * 0.000027, lng: 126.978, t: runStart.getTime() + i * 1000, acc: 5, speed: 3, alt: 30 + i * 0.02, altAcc: 4 });
+saveRun(e, { id: randomUUID(), kind: 'run', startedAt: runStart, endedAt: new Date(runStart.getTime() + 400_000), summary: tracker.summary(runStart.getTime() + 400_000) });
 await store.flush();
 
 const snap = JSON.parse(snapshot.value!) as { tables: Record<string, Record<string, Record<string, unknown>>> };

@@ -55,8 +55,9 @@ export const entriesFor = (env: Env, date: string): MealEntryRow[] =>
 
 export const weightOn = (env: Env, date: string): number | null => env.store.get<WeightRow>('weights', date)?.kg ?? null;
 
+/** The day's home workout (A/B). Runs and walks also have workout rows but live in runs.ts. */
 export const workoutOn = (env: Env, date: string): WorkoutRow | undefined =>
-  env.store.where<WorkoutRow>('workouts', (w) => w.date === date)[0];
+  env.store.where<WorkoutRow>('workouts', (w) => w.date === date && (w.type === 'home_a' || w.type === 'home_b'))[0];
 
 export const previousWeightFor = (env: Env, i: number): number | null =>
   previousWeight(env.program, env.store.all<WeightRow>('weights'), i);

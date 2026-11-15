@@ -5,6 +5,7 @@ import {
   type RoutineKey, type Slot,
 } from '@diet/core';
 import { ordersDue, workoutOn, type Env, type TodayView } from './model';
+import { runCredit } from './run';
 
 export type Focus =
   | { kind: 'wake' }
@@ -134,8 +135,8 @@ export function logFood(env: Env, input: { date: string; slot: Slot; name: strin
   };
 }
 
-/** Daily target: a day override (coach adjustments) or the program base. */
-export const dayTarget = (env: Env, v: TodayView): number => v.day.kcal_target ?? env.program.baseKcal;
+/** Daily target: a day override (coach adjustments) or the program base, plus the share of run kcal given back. */
+export const dayTarget = (env: Env, v: TodayView): number => (v.day.kcal_target ?? env.program.baseKcal) + runCredit(env, v.ctx.key);
 /** What can still be eaten today against the target. */
 export const remainingKcal = (env: Env, v: TodayView): number => dayTarget(env, v) - v.sum.eaten;
 /** How far the rest of the plan would go over (positive) or under (negative) the target. */
