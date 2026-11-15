@@ -1,15 +1,22 @@
 // Local reminders for one day, planned from that day's view. Pure: the iPhone turns the list into
 // scheduled notifications and reruns this whenever the day changes. Rules pinned by tests:
-// nothing in the past, nothing in quiet hours, one notification per subject (stable ids), a daily cap.
+// nothing in the past, nothing in quiet hours, one notification per subject (stable ids), a daily cap,
+// and kinds the user keeps ignoring sent less often.
 import { ROUTINES, WEEK, type MealKey, type RoutineKey, type ScenId } from './data';
+import { overshootText, type Overshoot } from './insights';
 import { repMultiplier, workoutRounds } from './program';
 import { DINNER_CUTOFF, type PlannedMeal } from './schedule';
-import { hhmm, minutesOf, startOfDay } from './util';
+import { addDays, fmt, hhmm, keyOf, minutesOf, parseKey, startOfDay } from './util';
 
-export type ReminderKind = 'meal' | 'cutoff' | 'workout' | 'weigh' | 'wake' | 'water';
+export type ReminderKind = 'meal' | 'cutoff' | 'workout' | 'weigh' | 'wrap' | 'carry' | 'steps' | 'weekly' | 'wake' | 'water';
 
 /** Priority when the daily cap drops something (first = kept longest). */
-export const REMINDER_KINDS: ReminderKind[] = ['meal', 'cutoff', 'workout', 'weigh', 'wake', 'water'];
+export const REMINDER_KINDS: ReminderKind[] = ['meal', 'cutoff', 'workout', 'weigh', 'wrap', 'carry', 'steps', 'weekly', 'wake', 'water'];
+
+/** Kinds that are sent less often after three ignored days. The morning-after note and the weekly report are rare already. */
+export const REDUCIBLE_KINDS: ReminderKind[] = ['meal', 'cutoff', 'workout', 'weigh', 'wrap', 'steps', 'wake', 'water'];
+/** Kinds that can come several times a day; reduced, they come once. The others come every other day. */
+const MULTI_KINDS: ReminderKind[] = ['meal', 'water'];
 
 export interface ReminderPrefs {
   enabled: boolean;
@@ -22,16 +29,22 @@ export interface ReminderPrefs {
   /** Day key on which reminders were turned off for the rest of that day. */
   mutedOn: string | null;
   maxPerDay: number;
+  /** Kinds sent less often since that day, because three days in a row went without a reaction. */
+  reduced: Partial<Record<ReminderKind, string>>;
+  /** Day the user put a kind back to normal: older ignored days no longer count for it. */
+  reduceFrom: Partial<Record<ReminderKind, string>>;
 }
 
 export const DEFAULT_REMINDER_PREFS: ReminderPrefs = {
   enabled: true,
-  kinds: { meal: true, cutoff: true, workout: true, weigh: true, wake: true, water: true },
+  kinds: { meal: true, cutoff: true, workout: true, weigh: true, wrap: true, carry: true, steps: true, weekly: true, wake: true, water: true },
   quietStart: 23 * 60,
   quietEnd: 7 * 60,
   wakePromptAt: 9 * 60,
   mutedOn: null,
   maxPerDay: 8,
+  reduced: {},
+  reduceFrom: {},
 };
 
 /** The slice of a day view reminders depend on. `TodayView` from @diet/data satisfies it. */
@@ -39,11 +52,18 @@ export interface ReminderDay {
   ctx: { key: string; dow: number; week: number };
   nowMin: number;
   scen: ScenId;
-  day: { wake_min: number | null; water_cups: number };
+  day: { wake_min: number | null; water_cups: number; steps?: number };
   meals: PlannedMeal[];
   /** Slots already logged: eaten, replaced or skipped. */
   eaten: ReadonlySet<MealKey>;
   weight: number | null;
+  stepsGoal?: number;
+}
+
+/** What the planner cannot read from the day itself: yesterday's overshoot and this week's report. */
+export interface ReminderExtras {
+  overshoot?: Overshoot | null;
+  weekly?: { title: string; body: string } | null;
 }
 
 /** Today's home workout as the Today screen shows it (`workoutPlan` in @diet/data). */
@@ -62,9 +82,11 @@ export interface Reminder {
   at: number;
   title: string;
   body: string;
-  /** Meal slots that "먹었어요" / "건너뛰기" apply to. */
+  /** Meal slots that "먹었어요" / "건너뛰기" / "다 먹었어요" apply to. */
   meals?: MealKey[];
   routine?: RoutineKey;
+  /** carry: the cuts are not in the plan yet, so the notification can offer "나눠서 줄이기" */
+  canApply?: boolean;
 }
 
 const ceil10 = (m: number): number => Math.ceil(m / 10) * 10;
@@ -76,6 +98,14 @@ const WATER_END = DINNER_CUTOFF + 120;
 const CUTOFF_NOTICE = DINNER_CUTOFF - 30;
 /** No water nudges in the last hour of the pace: drinking a lot right before bed only breaks sleep. */
 const WATER_LAST_NUDGE = WATER_END - 60;
+export const STEPS_AT = 18 * 60 + 30;
+/** Below this share of the goal at 18:30, a walk is suggested. */
+export const STEPS_SHARE = 0.6;
+export const WRAP_AT = 21 * 60 + 30;
+/** From this time the wrap-up takes its normal place in the cap priority. */
+const WRAP_RANK_FROM = 17 * 60;
+export const WEEKLY_AT = 20 * 60;
+const MORNING_END = 12 * 60;
 
 /** Cups that should be done by `at` on the even pace from wake to 22:00 (same rule as the Today card). */
 export function expectedCups(at: number, wake: number | null): number {
@@ -147,6 +177,7 @@ export function wakeFromSleep(samples: readonly SleepSample[], now: Date, settle
  */
 export function planReminders(
   v: ReminderDay, workout: ReminderWorkout | null, prefs: ReminderPrefs = DEFAULT_REMINDER_PREFS, sent: ReadonlySet<string> = new Set(),
+  extras: ReminderExtras = {},
 ): Reminder[] {
   const date = v.ctx.key;
   if (!prefs.enabled || prefs.mutedOn === date) return [];
@@ -216,6 +247,37 @@ export function planReminders(
     }, 'prompt');
   }
 
+  // the morning after a big overshoot: how it is being paid back (or how it could be), half an hour after waking
+  if (extras.overshoot) {
+    let at = wake != null ? round5(wake + 30) : 9 * 60 + 30;
+    if (at <= v.nowMin) at = Math.ceil((v.nowMin + 10) / 30) * 30;
+    const t = overshootText(extras.overshoot);
+    if (at <= MORNING_END) add({ kind: 'carry', at, title: t.title, body: t.body, canApply: !extras.overshoot.applied && extras.overshoot.carry.length > 0 }, 'morning');
+  }
+
+  // 18:30 walk when the day is under 60% of the step goal. Planned only once the day has steps to judge
+  // (from noon), so tomorrow's plan never nudges on a count of zero.
+  const steps = v.day.steps;
+  if (v.stepsGoal && steps != null && v.nowMin >= 12 * 60 && steps < v.stepsGoal * STEPS_SHARE) {
+    const left = v.stepsGoal - steps;
+    add({
+      kind: 'steps', at: STEPS_AT, title: `${fmt(left)}보 남았습니다`,
+      body: `지금 ${Math.max(10, Math.round(left / 100))}분 걸으면 오늘 목표 ${fmt(v.stepsGoal)}보를 채웁니다.`,
+    }, 'evening');
+  }
+
+  // 21:30 wrap-up while any meal is still unlogged: one tap logs the rest as planned
+  const open = v.meals.filter((m) => !v.eaten.has(m.key));
+  if (open.length) {
+    add({
+      kind: 'wrap', at: WRAP_AT, title: '오늘 기록 마무리',
+      body: `${open.map((m) => m.name.replace(/\s*\(.*\)$/, '')).join(', ')} 기록이 비어 있습니다. 계획대로 먹었으면 다 먹었어요 한 번으로 끝납니다.`,
+      meals: open.map((m) => m.key),
+    }, 'day');
+  }
+
+  if (v.ctx.dow === 0 && extras.weekly) add({ kind: 'weekly', at: WEEKLY_AT, title: extras.weekly.title, body: extras.weekly.body }, 'week');
+
   // water: only on the milestones where the pace would be two cups ahead of what is logged, at most twice.
   // The milestones depend only on (wake, cups), so planning again never re-arms a nudge that already fired.
   const cups = v.day.water_cups;
@@ -233,9 +295,65 @@ export function planReminders(
     nudges++;
   }
 
-  const kept = out
-    .filter((r) => prefs.kinds[r.kind] && !sent.has(r.id) && r.at > v.nowMin && r.at < 24 * 60 && !inQuiet(r.at, prefs, wake))
-    .sort((a, b) => REMINDER_KINDS.indexOf(a.kind) - REMINDER_KINDS.indexOf(b.kind) || a.at - b.at)
+  let cand = out.filter((r) => prefs.kinds[r.kind] !== false && !sent.has(r.id) && r.at > v.nowMin && r.at < 24 * 60 && !inQuiet(r.at, prefs, wake));
+  // reduced kinds: once a day for the frequent ones, every other day for the rest
+  const odd = Math.round(parseKey(date).getTime() / 86400_000) % 2 === 1;
+  for (const k of Object.keys(prefs.reduced ?? {}) as ReminderKind[]) {
+    const allow = MULTI_KINDS.includes(k) ? Math.max(0, 1 - sentOf(k)) : odd ? 0 : 1;
+    const keep = new Set(cand.filter((r) => r.kind === k).sort((a, b) => a.at - b.at).slice(0, allow).map((r) => r.id));
+    cand = cand.filter((r) => r.kind !== k || keep.has(r.id));
+  }
+  // the wrap-up only matters at night: until the evening plan it yields its cap slot to everything else
+  const rank = (r: Reminder) => (r.kind === 'wrap' && v.nowMin < WRAP_RANK_FROM ? REMINDER_KINDS.length : REMINDER_KINDS.indexOf(r.kind));
+  const kept = cand
+    .sort((a, b) => rank(a) - rank(b) || a.at - b.at)
     .slice(0, Math.max(0, prefs.maxPerDay - sentToday.length));
   return kept.sort((a, b) => a.at - b.at || REMINDER_KINDS.indexOf(a.kind) - REMINDER_KINDS.indexOf(b.kind));
 }
+
+// ---------------- ignored kinds ----------------
+/** One delivered reminder and whether the user reacted: pressed a button, opened it, or did the thing anyway. */
+export interface ReminderOutcome {
+  date: string;
+  kind: ReminderKind;
+  acted: boolean;
+}
+
+/** Kind parsed from a reminder id (`date:kind:subject`). */
+export const reminderIdParts = (id: string): { date: string; kind: ReminderKind; subject: string } | null => {
+  const [date, kind, ...rest] = id.split(':');
+  return date && kind && (REMINDER_KINDS as string[]).includes(kind) ? { date, kind: kind as ReminderKind, subject: rest.join(':') } : null;
+};
+
+/**
+ * Next set of reduced kinds. A kind is reduced when it was delivered on each of the three days before `today`
+ * and none of those got a reaction (days before `reduceFrom[kind]` do not count). It goes back to normal as
+ * soon as one of its reminders gets a reaction on or after the day it was reduced.
+ */
+export function nextReduced(
+  prev: Partial<Record<ReminderKind, string>>, outcomes: readonly ReminderOutcome[], today: string,
+  reduceFrom: Partial<Record<ReminderKind, string>> = {}, streak = 3,
+): Partial<Record<ReminderKind, string>> {
+  const out: Partial<Record<ReminderKind, string>> = {};
+  for (const [k, since] of Object.entries(prev) as [ReminderKind, string][]) {
+    if (!outcomes.some((o) => o.kind === k && o.acted && o.date >= since)) out[k] = since;
+  }
+  const t = parseKey(today);
+  const days = Array.from({ length: streak }, (_, i) => keyOf(addDays(t, -1 - i)));
+  for (const k of REDUCIBLE_KINDS) {
+    if (out[k]) continue;
+    const from = reduceFrom[k];
+    const ignored = days.every((d) => {
+      if (from && d < from) return false;
+      const mine = outcomes.filter((o) => o.kind === k && o.date === d);
+      return mine.length > 0 && mine.every((o) => !o.acted);
+    });
+    if (ignored) out[k] = today;
+  }
+  return out;
+}
+
+export const sameReduced = (a: Partial<Record<ReminderKind, string>>, b: Partial<Record<ReminderKind, string>>): boolean => {
+  const ka = Object.keys(a).sort(), kb = Object.keys(b).sort();
+  return ka.length === kb.length && ka.every((k, i) => k === kb[i] && a[k as ReminderKind] === b[k as ReminderKind]);
+};

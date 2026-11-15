@@ -15,6 +15,8 @@ export interface MealOverride {
   removed?: boolean;
   /** shown under the meal, e.g. why it changed */
   note?: string;
+  /** only on these weekdays (Date.getDay()); absent = every day */
+  dows?: number[];
 }
 
 /** Changes to the weekly workout plan (stored with the meal plan in `plans`). */
@@ -124,11 +126,15 @@ export interface AdjustedMeal extends PlannedMeal {
   edited?: string;
 }
 
-/** Apply template overrides and day adjustments on top of the situation-aware plan. */
-export function applyPlanChanges(meals: PlannedMeal[], override?: PlanOverride | null, adjustments: DayAdjustment[] = []): AdjustedMeal[] {
+/**
+ * Apply template overrides and day adjustments on top of the situation-aware plan. `dow` is the day's weekday:
+ * a change limited to some weekdays (`dows`) applies only on those; without `dow` every change applies.
+ */
+export function applyPlanChanges(meals: PlannedMeal[], override?: PlanOverride | null, adjustments: DayAdjustment[] = [], dow?: number): AdjustedMeal[] {
   const out: AdjustedMeal[] = [];
   for (const base of meals) {
-    const o = override?.meals?.[base.key];
+    const raw = override?.meals?.[base.key];
+    const o = raw?.dows && dow != null && !raw.dows.includes(dow) ? undefined : raw;
     if (o?.removed) continue;
     let m: AdjustedMeal = { ...base };
     if (o) {
@@ -194,6 +200,23 @@ const MAX_CARRY_PER_DAY = 200;
 export const MIN_DAY_KCAL = 1200;
 const CARRY_DAYS = 3;
 
+/**
+ * Spread `left` kcal over up to three days, 200 a day at most, never taking a day under 1,200. Offsets count
+ * from today: the rebalance card starts tomorrow (1), the morning-after note starts today (0).
+ */
+export function carryDays(left: number, target: number, startOffset = 1): { offset: number; kcal: number }[] {
+  const out: { offset: number; kcal: number }[] = [];
+  let rest = Math.max(0, left);
+  for (let d = 0; d < CARRY_DAYS && rest > 50; d++) {
+    const room = Math.max(0, target - MIN_DAY_KCAL);
+    const k = Math.min(MAX_CARRY_PER_DAY, room, Math.round(rest / 10) * 10);
+    if (k <= 0) break;
+    out.push({ offset: startOffset + d, kcal: k });
+    rest -= k;
+  }
+  return out;
+}
+
 export function rebalance(input: RebalanceInput): Proposal {
   const remaining = input.meals.filter((m) => !input.logged.has(m.key));
   const total = input.eatenKcal + remaining.reduce((s, m) => s + m.kcal, 0);
@@ -224,15 +247,7 @@ export function rebalance(input: RebalanceInput): Proposal {
   const cutKcal = cuts.reduce((s, c) => s + c.kcal, 0);
   const cutProtein = cuts.reduce((s, c) => s + c.protein, 0);
 
-  const carry: Proposal['carry'] = [];
-  let left = Math.max(0, over - cutKcal);
-  for (let d = 1; d <= CARRY_DAYS && left > 50; d++) {
-    const room = Math.max(0, input.target - MIN_DAY_KCAL);
-    const k = Math.min(MAX_CARRY_PER_DAY, room, Math.round(left / 10) * 10);
-    if (k <= 0) break;
-    carry.push({ offset: d, kcal: k });
-    left -= k;
-  }
+  const carry: Proposal['carry'] = carryDays(over - cutKcal, input.target, 1);
   const stepsBonus = over - cutKcal > 600 ? 3000 : 0;
 
   // protein top-up when the day would end under the floor
