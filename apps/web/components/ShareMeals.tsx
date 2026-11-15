@@ -167,11 +167,26 @@ export function ShareMealsSheet() {
     return () => { gone = true; if (made) URL.revokeObjectURL(made); };
   }, [data, tone]);
 
-  const canShare = !!file && typeof navigator !== 'undefined' && !!navigator.canShare?.({ files: [file] });
+  // phones: the system share sheet. computers: copy one PNG to the clipboard (KakaoTalk pastes it as a photo).
+  // Dragging the preview or sharing from macOS can hand apps the image twice (file + image data), so the
+  // preview is not draggable and the copy button writes a single image/png item.
+  const [phone] = useState(() => matchMedia('(pointer: coarse)').matches);
+  const canShare = phone && !!file && !!navigator.canShare?.({ files: [file] });
+  const canCopy = typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
   const share = async () => {
     if (!file) return;
     try { await navigator.share({ files: [file], title: '오늘 식단' }); close(); }
     catch { /* cancelled */ }
+  };
+  const copy = async () => {
+    if (!file) return;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': file })]);
+      toast('복사했습니다. 카톡 대화창에 붙여넣으면 사진 한 장으로 갑니다');
+    } catch {
+      // browsers that block clipboard images (or embedded views) fall back to saving the file
+      toast('이 브라우저는 이미지 복사를 막아서, 이미지 저장을 써 주세요');
+    }
   };
 
   return (
@@ -184,13 +199,14 @@ export function ShareMealsSheet() {
       </div>
       <div className="share-preview">
         {/* eslint-disable-next-line @next/next/no-img-element -- a local blob preview, not a page image */}
-        {url ? <img src={url} alt="오늘 식단표 이미지" /> : <p className="note">이미지를 만드는 중입니다</p>}
+        {url ? <img src={url} alt="오늘 식단표 이미지" draggable={false} /> : <p className="note">이미지를 만드는 중입니다</p>}
       </div>
-      <p className="note">휴대폰에서는 이미지를 길게 눌러 사진에 저장할 수도 있습니다.</p>
+      <p className="note">{phone ? '이미지를 길게 눌러 사진에 저장할 수도 있습니다.' : '복사한 뒤 카톡 대화창에 붙여넣으면 사진 한 장으로 보내집니다.'}</p>
       <div className="share-actions">
         {canShare && <button type="button" className="btn-primary pill" onClick={() => void share()}><Icon name="share" />공유하기</button>}
+        {!canShare && canCopy && file && <button type="button" className="btn-primary pill" onClick={() => void copy()}><Icon name="copy" />이미지 복사</button>}
         {url && file && (
-          <a className={canShare ? 'btn-ghost pill' : 'btn-primary pill'} href={url} download={file.name}><Icon name="download" />이미지 저장</a>
+          <a className={canShare || canCopy ? 'btn-ghost pill' : 'btn-primary pill'} href={url} download={file.name}><Icon name="download" />이미지 저장</a>
         )}
       </div>
     </div>
