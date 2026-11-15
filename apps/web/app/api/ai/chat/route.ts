@@ -5,6 +5,7 @@ import { ChatRequestZ, type CoachErrorCode, type CoachEvent } from '@diet/core/c
 import { runCoachTurn } from '@/lib/ai/agent';
 import { authenticate } from '@/lib/ai/auth';
 import { burstAllowed, quotaAllowed } from '@/lib/ai/limits';
+import { recordTokens, takeUsage } from '@/lib/ai/usage';
 import { SSE_HEADERS, sseFrame, ssePing } from '@/lib/ai/sse';
 
 export const maxDuration = 300;
@@ -40,8 +41,13 @@ export async function POST(req: Request): Promise<Response> {
   const input = { ...parsed.data, history: parsed.data.history.slice(-12).map((t) => ({ ...t, text: t.text.slice(0, 3000) })) };
 
   if (!burstAllowed(auth.user.id)) return json(429, 'rate_limit', '조금 천천히 물어봐 주세요', { 'Retry-After': '30' });
-  const quota = await quotaAllowed(auth.db);
-  if (!quota.ok) return json(429, 'rate_limit', quota.message, { 'Retry-After': '600' });
+  // durable count in ai_usage when configured, otherwise the user's own chat_messages rows
+  const usage = await takeUsage(auth.user.id, 'chat');
+  if (usage && !usage.ok) return json(usage.status, 'rate_limit', usage.message, { 'Retry-After': '600' });
+  if (!usage) {
+    const quota = await quotaAllowed(auth.db);
+    if (!quota.ok) return json(429, 'rate_limit', quota.message, { 'Retry-After': '600' });
+  }
 
   // record the user turn (thread + message, through RLS); this is also what the hourly/daily quota counts
   const db = auth.db;
@@ -62,6 +68,7 @@ export async function POST(req: Request): Promise<Response> {
       try {
         const result = await runCoachTurn(input, send, upstream.signal, assistantId);
         send({ type: 'done', stopReason: result.stopReason });
+        if (usage?.ok) await recordTokens(usage.id, result.usage.input + result.usage.cacheRead + result.usage.cacheWrite, result.usage.output);
         if (result.text || result.cards.length) {
           await db.from('chat_messages').insert({ id: assistantId, thread_id: input.threadId, role: 'assistant', content: { text: result.text, cards: result.cards, usage: result.usage } });
         }
