@@ -1,10 +1,10 @@
 // View models and actions on top of the store. Web and iPhone call these same functions,
 // so a check on one device produces exactly the same rows and totals on the other.
 import {
-  addDays, adjustedTarget, applyPlanChanges, partialMeal, dayCtx, effectiveRoutines, effectiveWeek, mealCheckId, sessionFor, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
+  addDays, adjustedTarget, applyPlanChanges, effectiveRules, effectiveShop, partialMeal, dayCtx, effectiveRoutines, effectiveWeek, mealCheckId, sessionFor, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
   programDate, programKey, rolling7, stepsGoal, summary, weightSeries, weightStats,
   type ChecklistRow, type DayCtx, type DayRow, type EatoutSlot, type MealEntryRow, type MealKey, type PlannedMeal,
-  type AdjustedMeal, type DayAdjustment, type PlanOverride, type Program, type RoutineDef, type RoutineKey, type ScenId, type Summary,
+  type AdjustedMeal, type DayAdjustment, type PlanOverride, type RuleCard, type ShopPlan, type Program, type RoutineDef, type RoutineKey, type ScenId, type Summary,
   type WeekType, type WeightRow, type WorkoutRow,
 } from '@diet/core';
 import type { DataStore } from './store';
@@ -84,6 +84,9 @@ export interface TodayView {
   session: WeekType;
   /** kcal target after carried-over adjustments */
   target: number;
+  /** the user's shopping list and "항상 지키는 것" cards */
+  shop: ShopPlan;
+  rules: RuleCard[];
   eaten: Set<MealKey>;
   /** slots intentionally skipped (subset of eaten) */
   skipped: Set<MealKey>;
@@ -111,6 +114,7 @@ export function todayView(env: Env): TodayView {
     ctx, nowMin: minutesOf(now), day, scen, eatout, meals, entries, eaten, skipped,
     override, adjustments, week: effectiveWeek(override), routines: effectiveRoutines(override), session: sessionFor(ctx.dow, override, adjustments),
     target: adjustedTarget(day.kcal_target ?? env.program.baseKcal, adjustments),
+    shop: effectiveShop(override), rules: effectiveRules(override),
     sum: summary(meals, entries),
     next: meals.find((m) => !eaten.has(m.key)),
     stepsGoal: stepsGoal(ctx.week),
@@ -160,7 +164,11 @@ export function weightData(env: Env, dayIdx: number) {
 
 export const ordersDue = (env: Env) => {
   const ctx = dayCtx(env.program, env.now());
-  return dueOrders({ dayIdx: ctx.idx, dow: ctx.dow, dayKey: ctx.key, done: checklistSet(env, 'cycle') });
+  const custom = effectivePlan(env, ctx.key)?.shop;
+  return dueOrders({
+    dayIdx: ctx.idx, dow: ctx.dow, dayKey: ctx.key, done: checklistSet(env, 'cycle'),
+    ...(custom ? { cycle: custom.cycle, weeklyNames: custom.week.map((s) => s.name) } : {}),
+  });
 };
 
 // ---------------- actions ----------------

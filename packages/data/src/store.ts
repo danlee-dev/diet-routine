@@ -188,6 +188,11 @@ export class DataStore {
     this.emit();
   }
 
+  /** Signed-in user id, or null while the data lives only on this device. */
+  get currentUserId(): string | null {
+    return this.userId;
+  }
+
   async attach(client: SupabaseClient, userId: string): Promise<void> {
     this.detach();
     this.client = client;
