@@ -238,5 +238,9 @@ export function proposalToAdjustments(p: Proposal, reason: string): { offset: nu
   for (const c of p.carry) {
     rows.push({ offset: c.offset, adj: { slot: null, source: 'rebalance', reason, change: { kind: 'carry', kcal_delta: -c.kcal, label: `어제 넘친 만큼 ${c.kcal}kcal 덜 먹기` } } });
   }
+  // What moves to the next days is a loan against today: raise today's target by it, so a second rebalance
+  // the same day sees that part as handled instead of carrying the same excess again.
+  const carried = p.carry.reduce((s, c) => s + c.kcal, 0);
+  if (carried > 0) rows.push({ offset: 0, adj: { slot: null, source: 'rebalance', reason, change: { kind: 'carry', kcal_delta: carried, label: `다음 날로 넘김 ${carried}kcal` } } });
   return rows;
 }

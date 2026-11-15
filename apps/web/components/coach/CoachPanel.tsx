@@ -1,7 +1,7 @@
 'use client';
 // AI coach panel: right-side panel on tablet/desktop, full-screen sheet on phones.
 // Steps stream in as lines, the answer streams as text, change cards are applied only on 적용.
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowUp, ArrowUpRight, Check, ChevronDown, ImagePlus, MessageCircle, RotateCcw, Square, X } from 'lucide-react';
 import { fmt } from '@diet/core';
 import { coachSnapshot } from '@diet/data';
@@ -18,6 +18,7 @@ const KIND: Record<CoachCard['kind'], string> = {
 };
 const SLOT_NAME: Record<string, string> = { breakfast: '아침', lunch: '점심', snack: '간식', post: '운동 후', dinner: '저녁' };
 const ICON = { size: 18, strokeWidth: 1.9, 'aria-hidden': true } as const;
+const hostOf = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } };
 
 /** Top-bar entry. */
 export function CoachButton({ onClick }: { onClick: () => void }) {
@@ -71,7 +72,11 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
   const file = useRef<HTMLInputElement>(null);
   const stick = useRef(true);
 
-  const snap = coachSnapshot(env);
+  // recomputed only when the store changes, not on every streamed token
+  const version = env.store.getVersion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const snap = useMemo(() => coachSnapshot(env), [env, version]);
+  const applied = new Set(chat.turns.flatMap((t) => (t.role === 'assistant' ? t.parts : [])).filter((p) => p.kind === 'card' && p.state === 'applied').map((p) => (p.kind === 'card' ? p.card.id : '')));
   const next = snap.meals.find((m) => m.state === 'pending');
   const prompts = suggestedPrompts(next ? { key: next.key, name: next.name } : undefined, Number(snap.now.time.slice(0, 2)));
 
@@ -170,7 +175,7 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
                 </li>
               ) : (
                 <li key={t.id} className={s.reply}>
-                  <Reply turn={t} onApply={(c) => chat.apply(t.id, c)} onUndo={(id) => chat.undo(t.id, id)} onView={view} onLogin={login} onRetry={chat.retry} />
+                  <Reply turn={t} applied={applied} onApply={(c) => chat.apply(t.id, c)} onUndo={(id) => chat.undo(t.id, id)} onView={view} onLogin={login} onRetry={chat.retry} />
                 </li>
               ))}
             </ol>
@@ -220,8 +225,9 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
   );
 }
 
-function Reply({ turn, onApply, onUndo, onView, onLogin, onRetry }: {
+function Reply({ turn, applied, onApply, onUndo, onView, onLogin, onRetry }: {
   turn: AssistantTurn;
+  applied: Set<string>;
   onApply: (c: CoachCard) => string | null;
   onUndo: (cardId: string) => void;
   onView: (target: string) => void;
@@ -231,7 +237,7 @@ function Reply({ turn, onApply, onUndo, onView, onLogin, onRetry }: {
   const live = turn.status === 'streaming';
   return (
     <>
-      {turn.parts.map((p, i) => <Part key={i} part={p} live={live} turn={turn} onApply={onApply} onUndo={onUndo} onView={onView} />)}
+      {turn.parts.map((p, i) => <Part key={i} part={p} live={live} turn={turn} applied={applied} onApply={onApply} onUndo={onUndo} onView={onView} />)}
       {live && turn.parts.length === 0 && <Steps steps={[{ id: 'wait', label: '연결하는 중', state: 'running', kind: 'context' }]} live />}
       {turn.status === 'stopped' && <p className={s.meta}>멈췄습니다</p>}
       {turn.error && (
@@ -246,18 +252,18 @@ function Reply({ turn, onApply, onUndo, onView, onLogin, onRetry }: {
   );
 }
 
-function Part({ part, live, turn, onApply, onUndo, onView }: {
-  part: TurnPart; live: boolean; turn: AssistantTurn;
+function Part({ part, live, turn, applied, onApply, onUndo, onView }: {
+  part: TurnPart; live: boolean; turn: AssistantTurn; applied: Set<string>;
   onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (target: string) => void;
 }) {
   switch (part.kind) {
     case 'steps': return <Steps steps={part.steps} live={live} seconds={live ? undefined : turnSeconds(turn)} />;
     case 'text': return <Prose text={part.text} />;
-    case 'card': return <Card card={part.card} state={part.state} onApply={onApply} onUndo={onUndo} onView={onView} />;
+    case 'card': return <Card card={part.card} state={part.state} blocked={(part.card.dependsOn ?? []).some((id) => !applied.has(id))} onApply={onApply} onUndo={onUndo} onView={onView} />;
     case 'sources': return (
       <div className={s.sources}>
         <p className={s.eyebrow}>출처</p>
-        <ul>{part.items.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer noopener">{x.title || new URL(x.url).hostname}</a><span>{new URL(x.url).hostname.replace(/^www\./, '')}</span></li>)}</ul>
+        <ul>{part.items.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer noopener">{x.title || hostOf(x.url)}</a><span>{hostOf(x.url)}</span></li>)}</ul>
       </div>
     );
   }
@@ -308,8 +314,8 @@ function Prose({ text }: { text: string }) {
 
 const signed = (n: number, unit: string) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(Math.round(n)))}${unit}`;
 
-function Card({ card, state, onApply, onUndo, onView }: {
-  card: CoachCard; state: 'idle' | 'applied' | 'undone';
+function Card({ card, state, blocked, onApply, onUndo, onView }: {
+  card: CoachCard; state: 'idle' | 'applied' | 'undone'; blocked: boolean;
   onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (target: string) => void;
 }) {
   const [err, setErr] = useState<string | null>(null);
@@ -344,6 +350,7 @@ function Card({ card, state, onApply, onUndo, onView }: {
       </dl>
       {card.note && <p className={s.cardNote}>{card.note}</p>}
       {err && <p className={s.cardErr}>{err}</p>}
+      {blocked && !applied && <p className={s.cardNote}>위 카드를 먼저 적용해야 이 숫자가 맞습니다</p>}
       <div className={s.cardActs}>
         {applied ? (
           <>
@@ -351,7 +358,7 @@ function Card({ card, state, onApply, onUndo, onView }: {
             <button type="button" className="btn-ghost pill" onClick={() => onUndo(card.id)}><RotateCcw size={15} aria-hidden />되돌리기</button>
           </>
         ) : (
-          <button type="button" className={`btn-primary pill ${s.applyBtn}`} onClick={() => setErr(onApply(card))}>적용</button>
+          <button type="button" className={`btn-primary pill ${s.applyBtn}`} disabled={blocked} onClick={() => setErr(onApply(card))}>적용</button>
         )}
         <button type="button" className={s.viewBtn} onClick={() => onView(card.target)}>보기<ArrowUpRight size={15} aria-hidden /></button>
       </div>

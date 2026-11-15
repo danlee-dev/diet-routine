@@ -53,7 +53,7 @@ export interface TurnResult {
   text: string;
   cards: CoachCard[];
   stopReason: string;
-  usage: { input: number; output: number; cacheRead: number };
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; webSearches: number };
 }
 
 /** @param messageId id of the assistant chat_messages row this turn will be saved as; cards carry it */
@@ -61,7 +61,7 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, me
   const session = new CoachSession(req.snapshot, crypto.randomUUID().slice(0, 8), messageId);
   const messages = buildMessages(req);
   const cards: CoachCard[] = [];
-  const usage = { input: 0, output: 0, cacheRead: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, webSearches: 0 };
   let text = '';
   let stopReason = 'end_turn';
   let notes = 0;
@@ -81,7 +81,8 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, me
     const last = iter === LIMITS.maxIterations - 1 || usage.output > LIMITS.maxTokensPerTurn;
     const stream = anthropic().beta.messages.stream({
       model: COACH_MODEL,
-      max_tokens: LIMITS.maxTokensPerCall,
+      // the closing round only writes the answer
+      max_tokens: last ? 4000 : LIMITS.maxTokensPerCall,
       system: SYSTEM,
       tools: TOOLS,
       // on the last allowed round the model must answer with what it has
@@ -137,6 +138,8 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, me
     usage.input += msg.usage.input_tokens;
     usage.output += msg.usage.output_tokens;
     usage.cacheRead += msg.usage.cache_read_input_tokens ?? 0;
+    usage.cacheWrite += msg.usage.cache_creation_input_tokens ?? 0;
+    usage.webSearches += msg.usage.server_tool_use?.web_search_requests ?? 0;
     stopReason = msg.stop_reason ?? 'end_turn';
 
     if (msg.stop_reason === 'refusal') {
@@ -148,6 +151,10 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, me
     if (msg.stop_reason === 'max_tokens' && toolUses.length) {
       // a tool input cut off at max_tokens can still parse as a valid partial object: never run it
       emit({ type: 'error', code: 'too_long', message: '답이 너무 길어져 멈췄습니다. 조금 나눠서 물어봐 주세요' });
+      break;
+    }
+    if (msg.stop_reason === 'max_tokens') {
+      emit({ type: 'status', id: `cut-${iter}`, label: '답이 길어 여기서 멈췄습니다', state: 'done', kind: 'note' });
       break;
     }
     if (msg.stop_reason !== 'tool_use' || !toolUses.length) break;

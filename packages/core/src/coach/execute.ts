@@ -8,7 +8,7 @@ import type { MealKey, RoutineDef, WeekType } from '../data';
 import { proposalToAdjustments, rebalance, WEEK_LABEL, type AdjustedMeal, type MealOverride } from '../rebalance';
 import { addDays, fmt, keyOf, parseKey } from '../util';
 import {
-  AdjustWorkoutInputZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, RebalanceTodayInputZ, SkipMealInputZ,
+  AdjustWorkoutInputZ, CardZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, RebalanceTodayInputZ, SkipMealInputZ,
 } from './schema';
 import type {
   AdjustWorkoutInput, CardRow, CoachCard, CoachSnapshot, CoachToolName, LogFoodInput, ProposeDayAdjustmentInput, ProposePlanChangeInput,
@@ -51,6 +51,9 @@ const R = Math.round;
 const kcalText = (k: number) => `${fmt(R(k))}kcal`;
 const itemsText = (items: { name: string; amount: string }[]) => items.map((x) => `${x.name} ${x.amount}`.trim()).join(' · ');
 const APPLY_NOTE = '변경 카드로 보여줬습니다. 사용자가 적용을 눌러야 저장됩니다. 저장됐다고 말하지 마세요.';
+/** no planned or adjusted day goes under this (PLAN.md: 하루 1,200kcal 아래로는 안 내린다) */
+export const DAY_FLOOR_KCAL = 1200;
+const clip = (s: string, n = 300) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** kcal/protein this slot currently adds to today's projected total */
 function contribution(m: SnapMeal): { kcal: number; protein: number } {
@@ -79,14 +82,29 @@ export function toolStatusLabel(name: string, input?: Record<string, unknown>): 
 export class CoachSession {
   readonly snap: CoachSnapshot;
   private seq = 0;
+  /** cards of this turn that changed today's numbers; a later rebalance card depends on them */
+  private affecting: string[] = [];
 
   /** @param messageId the assistant chat_messages row id; cards carry it so applied plan rows link back to the chat */
   constructor(snapshot: CoachSnapshot, private readonly cardPrefix: string, private readonly messageId?: string) {
     this.snap = structuredClone(snapshot);
   }
 
-  /** Run a tool whose input already passed parseToolInput. */
+  /** Run a tool whose input already passed parseToolInput. A card that would not pass the client's check is never sent. */
   run(name: CoachToolName, input: unknown): ToolOutcome {
+    const before = structuredClone(this.snap);
+    const out = this.exec(name, input);
+    // a refused or dropped card must not leave its effect on the working day
+    if (out.isError) { Object.assign(this.snap, before); return out; }
+    if (out.card && !CardZ.safeParse(out.card).success) {
+      Object.assign(this.snap, before);
+      return this.err('카드를 만들지 못했습니다. 항목 이름이나 설명을 짧게 해서 다시 시도하세요.');
+    }
+    if (out.card && ['log_food', 'skip_meal', 'day_adjustment', 'plan_change'].includes(out.card.kind) && out.card.delta.kcal !== 0) this.affecting.push(out.card.id);
+    return out;
+  }
+
+  private exec(name: CoachToolName, input: unknown): ToolOutcome {
     switch (name) {
       case 'log_food': return this.logFood(input as LogFoodInput);
       case 'skip_meal': return this.skipMeal(input as SkipMealInput);
@@ -121,13 +139,16 @@ export class CoachSession {
       pending_meals: this.snap.meals.filter((m) => m.state === 'pending').map((m) => m.key),
     };
   }
-  private card(c: Omit<CoachCard, 'id' | 'totals' | 'delta' | 'messageId'>, before: { kcal: number; protein: number }, after = this.totals()): CoachCard {
+  private card(c: Omit<CoachCard, 'id' | 'totals' | 'delta' | 'messageId' | 'day'>, before: { kcal: number; protein: number }, after = this.totals()): CoachCard {
     return {
       id: this.nextId(),
+      day: this.today,
       ...(this.messageId ? { messageId: this.messageId } : {}),
       ...c,
+      title: clip(c.title, 100),
+      lines: c.lines.map((l) => ({ label: clip(l.label, 40), ...(l.before != null ? { before: clip(l.before) } : {}), after: clip(l.after) })),
       delta: { kcal: after.kcal - before.kcal, protein: after.protein - before.protein },
-      totals: { before, after, target: R(this.snap.target.kcal), proteinFloor: this.snap.target.proteinFloor },
+      totals: { before: { kcal: Math.max(0, before.kcal), protein: Math.max(0, before.protein) }, after: { kcal: Math.max(0, after.kcal), protein: Math.max(0, after.protein) }, target: R(this.snap.target.kcal), proteinFloor: this.snap.target.proteinFloor },
     };
   }
   private err(message: string): ToolOutcome {
@@ -150,6 +171,7 @@ export class CoachSession {
     }
     kcal = R(kcal);
     protein = R(protein);
+    if (kcal > 4000) return this.err(`${fmt(kcal)}kcal 는 한 번 기록으로 너무 큽니다. 양(g)이나 기준(100g당/1회 제공량)을 다시 확인하세요.`);
     const before = this.totals();
     const lines: CoachCard['lines'] = [];
     if (input.slot === 'extra') {
@@ -270,11 +292,14 @@ export class CoachSession {
     for (const r of rows) if (r.op === 'adjustment' && r.date === this.today) s.adjustments.push({ slot: r.slot, change: r.change, reason: r.reason, source: 'rebalance' });
     s.totals.projectedKcal = p.after.total;
     s.totals.projectedProtein = p.after.protein;
+    // carried kcal is a loan against today (see proposalToAdjustments)
+    s.target.kcal += p.carry.reduce((a, c) => a + c.kcal, 0);
     const after = this.totals();
     const card = this.card({
       kind: 'rebalance',
       title: '남은 끼니 다시 맞추기',
       lines,
+      ...(this.affecting.length ? { dependsOn: [...this.affecting] } : {}),
       target: `today:meal:${p.cuts[0]?.slot ?? p.proteinAdds[0]?.slot ?? 'dinner'}`,
       note: p.summary,
       rows,
@@ -316,8 +341,9 @@ export class CoachSession {
       this.shift(kcalDelta, proteinDelta);
     } else {
       const t = this.snap.target;
+      if (t.kcal + kcalDelta < DAY_FLOOR_KCAL) return this.err(`오늘 목표를 ${fmt(DAY_FLOOR_KCAL)}kcal 아래로 내릴 수 없습니다 (지금 ${fmt(t.kcal)}kcal).`);
       lines.push({ label: '오늘 목표', before: kcalText(t.kcal), after: kcalText(t.kcal + kcalDelta) });
-      t.kcal = Math.max(600, t.kcal + kcalDelta);
+      t.kcal += kcalDelta;
     }
     const change = { kind: input.kind, kcal_delta: kcalDelta, protein_delta: proteinDelta, label: input.label, ...(input.kind === 'edit' && input.items ? { items: input.items } : {}) };
     this.snap.adjustments.push({ slot: input.slot, change, reason: input.reason, source: 'ai' });
@@ -347,22 +373,21 @@ export class CoachSession {
     for (const c of input.changes) {
       const m = this.meal(c.slot);
       const prev: MealOverride = prevMeals[c.slot] ?? {};
-      let next: MealOverride;
-      if (c.remove) {
-        next = { ...prev, removed: true, ...(c.note ? { note: c.note } : {}) };
-      } else {
-        const { removed: _r, ...rest } = prev;
-        next = {
-          ...rest,
+      // only the fields this change sets; the client merges them onto the meal as it is when 적용 is tapped
+      const fields: MealOverride = c.remove
+        ? { removed: true, ...(c.note ? { note: c.note } : {}) }
+        : {
+          ...(prev.removed ? { removed: false } : {}),
           ...(c.name ? { name: c.name } : {}),
           ...(c.time ? { time: c.time } : {}),
           ...(c.items ? { items: c.items } : {}),
           ...(c.kcal != null ? { kcal: R(c.kcal) } : {}),
           ...(c.protein != null ? { protein: R(c.protein) } : {}),
-          note: c.note ?? prev.note ?? input.title,
+          note: c.note ?? input.title,
         };
-      }
-      patch[c.slot] = next;
+      const next: MealOverride = { ...prev, ...fields };
+      patch[c.slot] = fields;
+      prevMeals[c.slot] = next;
 
       const curK = m?.kcal ?? 0, curP = m?.protein ?? 0;
       const newK = c.remove ? 0 : c.kcal != null ? R(c.kcal) : curK;
@@ -379,13 +404,16 @@ export class CoachSession {
         else Object.assign(m, { ...(c.name ? { name: c.name } : {}), ...(c.time ? { time: c.time } : {}), ...(c.items ? { items: c.items } : {}), kcal: newK, protein: newP, edited: next.note });
       }
     }
-    s.planOverride = { ...s.planOverride, meals: { ...prevMeals, ...patch } };
+    s.planOverride = { ...s.planOverride, meals: prevMeals };
 
     const before = input.effective === 'today' ? this.totals() : planBefore;
     if (input.effective === 'today') this.shift(todayDelta.kcal, todayDelta.protein);
     const after = input.effective === 'today' ? this.totals() : { kcal: planBefore.kcal + planDelta.kcal, protein: planBefore.protein + planDelta.protein };
-    const planProteinAfter = planBefore.protein + planDelta.protein;
+    const planProteinAfter = Math.max(0, planBefore.protein + planDelta.protein);
     const floor = s.target.proteinFloor;
+    if (planBefore.kcal + planDelta.kcal < DAY_FLOOR_KCAL) {
+      return this.err(`이렇게 바꾸면 하루 계획이 ${fmt(planBefore.kcal + planDelta.kcal)}kcal 로 ${fmt(DAY_FLOOR_KCAL)}kcal 아래가 됩니다. 다른 끼니를 늘리는 변경을 같이 넣으세요.`);
+    }
     const low = planProteinAfter < floor;
     lines.push({ label: '하루 계획', before: `${kcalText(planBefore.kcal)} · 단백질 ${planBefore.protein}g`, after: `${kcalText(planBefore.kcal + planDelta.kcal)} · 단백질 ${planProteinAfter}g` });
 

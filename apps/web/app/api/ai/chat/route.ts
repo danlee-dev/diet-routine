@@ -31,8 +31,13 @@ export async function POST(req: Request): Promise<Response> {
     return json(400, 'bad_request', '요청 형식이 올바르지 않습니다');
   }
   const parsed = ChatRequestZ.safeParse(body);
-  if (!parsed.success) return json(400, 'bad_request', '요청 형식이 올바르지 않습니다');
-  const input = parsed.data;
+  if (!parsed.success) {
+    const where = parsed.error.issues[0]?.path.join('.') ?? '';
+    console.warn('[coach] bad request at', where);
+    return json(400, 'bad_request', where.startsWith('snapshot') ? '오늘 기록 중 읽을 수 없는 값이 있습니다. 앱을 새로 고친 뒤 다시 시도해 주세요' : '요청 형식이 올바르지 않습니다');
+  }
+  // keep only recent history and cap each turn: the client controls it, and every token is re-sent each round trip
+  const input = { ...parsed.data, history: parsed.data.history.slice(-12).map((t) => ({ ...t, text: t.text.slice(0, 3000) })) };
 
   if (!burstAllowed(auth.user.id)) return json(429, 'rate_limit', '조금 천천히 물어봐 주세요', { 'Retry-After': '30' });
   const quota = await quotaAllowed(auth.db);
@@ -44,21 +49,24 @@ export async function POST(req: Request): Promise<Response> {
   await db.from('chat_messages').insert({ thread_id: input.threadId, role: 'user', content: { text: input.message, images: input.images.length } });
 
   const assistantId = crypto.randomUUID();
+  // stops the model call when the client disconnects or cancels the stream (멈추기), so nothing keeps billing
+  const upstream = new AbortController();
+  req.signal.addEventListener('abort', () => upstream.abort(), { once: true });
   let seq = 0;
   let open = true;
   const stream = new ReadableStream<Uint8Array>({
-    cancel() { open = false; },
+    cancel() { open = false; upstream.abort(); },
     async start(controller) {
       const send = (e: CoachEvent) => { if (open) controller.enqueue(sseFrame(e, ++seq)); };
       const ping = setInterval(() => { if (open) controller.enqueue(ssePing()); }, 15_000);
       try {
-        const result = await runCoachTurn(input, send, req.signal, assistantId);
+        const result = await runCoachTurn(input, send, upstream.signal, assistantId);
         send({ type: 'done', stopReason: result.stopReason });
         if (result.text || result.cards.length) {
           await db.from('chat_messages').insert({ id: assistantId, thread_id: input.threadId, role: 'assistant', content: { text: result.text, cards: result.cards, usage: result.usage } });
         }
       } catch (err) {
-        if (req.signal.aborted) { /* client went away: stop quietly */ }
+        if (upstream.signal.aborted) { /* client went away: stop quietly */ }
         else if (err instanceof Anthropic.RateLimitError) send({ type: 'error', code: 'rate_limit', message: 'AI 서버가 바쁩니다. 잠시 뒤에 다시 시도해 주세요' });
         else if (err instanceof Anthropic.BadRequestError) {
           console.error('[coach] bad request', err.message);

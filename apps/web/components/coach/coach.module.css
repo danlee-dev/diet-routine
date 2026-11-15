@@ -87,6 +87,7 @@
 .cardErr{margin-top:10px;font-size:13px;color:var(--fg)}
 .cardActs{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap}
 .applyBtn{height:40px;padding:0 22px}
+.applyBtn:disabled{background:var(--ctrl);color:var(--bg);cursor:default}
 .appliedTag{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 4px;font-size:14px;font-weight:500}
 .viewBtn{display:inline-flex;align-items:center;gap:4px;height:40px;margin-left:auto;padding:0 6px 0 10px;border-radius:999px;font-size:14px;font-weight:500;color:var(--fg-2);transition:background .2s}
 @media (hover:hover){ .viewBtn:hover{background:var(--surface-2)} }

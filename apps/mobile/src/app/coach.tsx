@@ -34,6 +34,7 @@ export default function CoachScreen() {
   const stick = useRef(true);
 
   const snap = coachSnapshot(env);
+  const applied = new Set(chat.turns.flatMap((x) => (x.role === 'assistant' ? x.parts : [])).filter((p) => p.kind === 'card' && p.state === 'applied').map((p) => (p.kind === 'card' ? p.card.id : '')));
   const next = snap.meals.find((m) => m.state === 'pending');
   const prompts = suggestedPrompts(next ? { key: next.key, name: next.name } : undefined, Number(snap.now.time.slice(0, 2)));
 
@@ -115,7 +116,7 @@ export default function CoachScreen() {
           </View>
         ) : (
           <View key={turn.id} style={{ gap: 12 }}>
-            <Reply t={t} turn={turn} onApply={(c) => chat.apply(turn.id, c)} onUndo={(id) => chat.undo(turn.id, id)} onView={view} onRetry={chat.retry} />
+            <Reply t={t} turn={turn} applied={applied} onApply={(c) => chat.apply(turn.id, c)} onUndo={(id) => chat.undo(turn.id, id)} onView={view} onRetry={chat.retry} />
           </View>
         ))}
       </ScrollView>
@@ -149,13 +150,13 @@ export default function CoachScreen() {
   );
 }
 
-function Reply({ t, turn, onApply, onUndo, onView, onRetry }: {
-  t: Theme; turn: AssistantTurn; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void; onRetry: () => void;
+function Reply({ t, turn, applied, onApply, onUndo, onView, onRetry }: {
+  t: Theme; turn: AssistantTurn; applied: Set<string>; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void; onRetry: () => void;
 }) {
   const live = turn.status === 'streaming';
   return (
     <>
-      {turn.parts.map((p, i) => <Part key={i} t={t} part={p} live={live} turn={turn} onApply={onApply} onUndo={onUndo} onView={onView} />)}
+      {turn.parts.map((p, i) => <Part key={i} t={t} part={p} live={live} turn={turn} applied={applied} onApply={onApply} onUndo={onUndo} onView={onView} />)}
       {live && turn.parts.length === 0 && <Steps t={t} steps={[{ id: 'wait', label: '연결하는 중', state: 'running', kind: 'context' }]} live />}
       {turn.status === 'stopped' && <Text style={{ color: t.muted, fontSize: 13 }}>멈췄습니다</Text>}
       {turn.error && (
@@ -170,13 +171,13 @@ function Reply({ t, turn, onApply, onUndo, onView, onRetry }: {
   );
 }
 
-function Part({ t, part, live, turn, onApply, onUndo, onView }: {
-  t: Theme; part: TurnPart; live: boolean; turn: AssistantTurn; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
+function Part({ t, part, live, turn, applied, onApply, onUndo, onView }: {
+  t: Theme; part: TurnPart; live: boolean; turn: AssistantTurn; applied: Set<string>; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
 }) {
   switch (part.kind) {
     case 'steps': return <Steps t={t} steps={part.steps} live={live} seconds={live ? undefined : turnSeconds(turn)} />;
     case 'text': return <Prose t={t} text={part.text} />;
-    case 'card': return <Card t={t} card={part.card} state={part.state} onApply={onApply} onUndo={onUndo} onView={onView} />;
+    case 'card': return <Card t={t} card={part.card} state={part.state} blocked={(part.card.dependsOn ?? []).some((id) => !applied.has(id))} onApply={onApply} onUndo={onUndo} onView={onView} />;
     case 'sources': return (
       <View style={{ gap: 6 }}>
         <Text style={{ color: t.muted, fontSize: 12, fontWeight: '600' }}>출처</Text>
@@ -245,8 +246,8 @@ function Prose({ t, text }: { t: Theme; text: string }) {
   return <View style={{ gap: 10 }}>{out}</View>;
 }
 
-function Card({ t, card, state, onApply, onUndo, onView }: {
-  t: Theme; card: CoachCard; state: 'idle' | 'applied' | 'undone'; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
+function Card({ t, card, state, blocked, onApply, onUndo, onView }: {
+  t: Theme; card: CoachCard; state: 'idle' | 'applied' | 'undone'; blocked: boolean; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
 }) {
   const [err, setErr] = useState<string | null>(null);
   const applied = state === 'applied';
@@ -283,6 +284,7 @@ function Card({ t, card, state, onApply, onUndo, onView }: {
       </View>
       {card.note && <Text style={{ color: t.fg2, fontSize: 13, lineHeight: 19, marginTop: 12 }}>{card.note}</Text>}
       {err && <Text style={{ color: t.fg, fontSize: 13, marginTop: 10 }}>{err}</Text>}
+      {blocked && !applied && <Text style={{ color: t.fg2, fontSize: 13, lineHeight: 19, marginTop: 10 }}>위 카드를 먼저 적용해야 이 숫자가 맞습니다</Text>}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 }}>
         {applied ? (
           <>
@@ -293,7 +295,8 @@ function Card({ t, card, state, onApply, onUndo, onView }: {
             <Btn small kind="ghost" icon="rotate-ccw" label="되돌리기" onPress={() => onUndo(card.id)} />
           </>
         ) : (
-          <Btn small label="적용" style={{ paddingHorizontal: 22 }} onPress={() => {
+          <Btn small label="적용" style={{ paddingHorizontal: 22, opacity: blocked ? 0.35 : 1 }} onPress={() => {
+            if (blocked) return;
             const e = onApply(card);
             setErr(e);
             if (!e) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

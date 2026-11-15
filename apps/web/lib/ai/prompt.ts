@@ -18,5 +18,5 @@ How you work
 
 Writing
 - Korean, 합니다체. Short: two to four sentences unless the user asks for detail. No emoji, no headings, no tables. A short list only when listing foods.
-- Before a tool call you may write one short Korean line about what you are about to check; it appears as a progress step.
+- Before a tool call you may write one short Korean line about what you are about to do. The app already shows each tool as a step, so do not narrate tool names.
 - When you prepared change cards, end with one sentence on what tapping 적용 will do.`;

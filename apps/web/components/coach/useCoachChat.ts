@@ -26,6 +26,8 @@ export function useCoachChat(env: Env) {
   const thread = useRef(uid());
   const abort = useRef<AbortController | null>(null);
   const undos = useRef(new Map<string, Undo>());
+  /** photos per user turn, so 다시 시도 sends them again */
+  const photos = useRef(new Map<string, PreparedImage[]>());
 
   useEffect(() => { turnsRef.current = turns; }, [turns]);
   useEffect(() => () => abort.current?.abort(), []);
@@ -38,20 +40,23 @@ export function useCoachChat(env: Env) {
     if (abort.current) return;
     const message = text.trim();
     if (!message && !images.length) return;
-    const history = historyFor(turnsRef.current);
-    const user: UserTurn = { role: 'user', id: uid(), text: message, images: images.map((i) => i.preview) };
-    const reply = newAssistantTurn(uid());
-    setTurns((ts) => [...ts, user, reply]);
-
-    const token = await accessToken();
-    if (!token) {
-      patch(reply.id, (t) => endTurn(t, 'error', { code: 'auth', message: '코치를 쓰려면 로그인해야 합니다' }));
-      return;
-    }
+    // claim the turn before any await, so a second tap or 멈추기 in between is handled
     const ac = new AbortController();
     abort.current = ac;
     setBusy(true);
+    const history = historyFor(turnsRef.current);
+    const user: UserTurn = { role: 'user', id: uid(), text: message, images: images.map((i) => i.preview) };
+    if (images.length) photos.current.set(user.id, images);
+    const reply = newAssistantTurn(uid());
+    setTurns((ts) => [...ts, user, reply]);
+
     try {
+      const token = await accessToken();
+      if (ac.signal.aborted) { patch(reply.id, (t) => endTurn(t, 'stopped')); return; }
+      if (!token) {
+        patch(reply.id, (t) => endTurn(t, 'error', { code: 'auth', message: '코치를 쓰려면 로그인해야 합니다' }));
+        return;
+      }
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -93,6 +98,7 @@ export function useCoachChat(env: Env) {
   const reset = useCallback(() => {
     abort.current?.abort();
     undos.current.clear();
+    photos.current.clear();
     thread.current = uid();
     setTurns([]);
   }, []);
@@ -118,10 +124,12 @@ export function useCoachChat(env: Env) {
     const ts = turnsRef.current;
     const lastUser = [...ts].reverse().find((t): t is UserTurn => t.role === 'user');
     if (!lastUser || abort.current) return;
+    const images = photos.current.get(lastUser.id) ?? [];
+    if (!lastUser.text && !images.length) return;
     const at = ts.lastIndexOf(lastUser);
     turnsRef.current = ts.slice(0, at);
     setTurns(ts.slice(0, at));
-    void send(lastUser.text, []);
+    void send(lastUser.text, images);
   }, [send]);
 
   return { turns, busy, send, stop, reset, apply, undo, retry };

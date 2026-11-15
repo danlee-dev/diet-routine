@@ -1,6 +1,6 @@
 // AI coach on iPhone: same request, events and card handling as the web panel (shared code in
 // @diet/core/coach and @diet/data), streamed with expo/fetch.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { fetch } from 'expo/fetch';
 import * as Crypto from 'expo-crypto';
 import {
@@ -37,101 +37,99 @@ const timeZone = (): string | undefined => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; }
 };
 
-export function useCoachChat(env: Env) {
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [busy, setBusy] = useState(false);
-  const turnsRef = useRef<Turn[]>([]);
-  const thread = useRef(Crypto.randomUUID());
-  const abort = useRef<AbortController | null>(null);
-  const undos = useRef(new Map<string, Undo>());
+// The conversation lives at module level: the coach screen is a modal, and closing it (or 보기) must not
+// abort a running turn or drop the transcript and the undo handles of applied cards.
+interface ChatState { turns: Turn[]; busy: boolean }
+let state: ChatState = { turns: [], busy: false };
+const listeners = new Set<() => void>();
+const setState = (fn: (s: ChatState) => ChatState) => { state = fn(state); for (const l of listeners) l(); };
+const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+const getState = () => state;
+let thread = Crypto.randomUUID();
+let abort: AbortController | null = null;
+const undos = new Map<string, Undo>();
 
-  useEffect(() => { turnsRef.current = turns; }, [turns]);
-  useEffect(() => () => abort.current?.abort(), []);
+const patch = (id: string, fn: (t: AssistantTurn) => AssistantTurn) =>
+  setState((s) => ({ ...s, turns: s.turns.map((t) => (t.role === 'assistant' && t.id === id ? fn(t) : t)) }));
 
-  const patch = useCallback((id: string, fn: (t: AssistantTurn) => AssistantTurn) => {
-    setTurns((ts) => ts.map((t) => (t.role === 'assistant' && t.id === id ? fn(t) : t)));
-  }, []);
-
-  const send = useCallback(async (text: string) => {
-    const message = text.trim();
-    if (abort.current || !message) return;
-    const history = historyFor(turnsRef.current);
-    const user: UserTurn = { role: 'user', id: Crypto.randomUUID(), text: message, images: [] };
-    const reply = newAssistantTurn(Crypto.randomUUID());
-    setTurns((ts) => [...ts, user, reply]);
-
+async function send(env: Env, text: string) {
+  const message = text.trim();
+  if (abort || !message) return;
+  const ac = new AbortController();
+  abort = ac;
+  const history = historyFor(state.turns);
+  const user: UserTurn = { role: 'user', id: Crypto.randomUUID(), text: message, images: [] };
+  const reply = newAssistantTurn(Crypto.randomUUID());
+  setState((s) => ({ turns: [...s.turns, user, reply], busy: true }));
+  try {
     const token = await accessToken();
+    if (ac.signal.aborted) { patch(reply.id, (t) => endTurn(t, 'stopped')); return; }
     if (!token) {
       patch(reply.id, (t) => endTurn(t, 'error', { code: 'auth', message: '코치를 쓰려면 로그인해야 합니다' }));
       return;
     }
-    const ac = new AbortController();
-    abort.current = ac;
-    setBusy(true);
-    try {
-      const res = await fetch(COACH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ threadId: thread.current, message, images: [], history, snapshot: coachSnapshot(env, timeZone()) }),
-        signal: ac.signal,
-      });
-      if (!res.ok || !res.body) {
-        const j = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
-        const code = (j?.error?.code ?? 'upstream') as NonNullable<AssistantTurn['error']>['code'];
-        patch(reply.id, (t) => endTurn(t, 'error', { code, message: j?.error?.message ?? '코치에 연결하지 못했습니다' }));
-        return;
-      }
-      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-      const feed = createSSEParser();
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const events = feed(value);
-        if (events.length) patch(reply.id, (t) => events.reduce((acc, e) => reduceTurn(acc, e), t));
-      }
-      patch(reply.id, (t) => (t.status === 'streaming' ? endTurn(t, 'error', { code: 'network', message: '연결이 끊겼습니다. 다시 시도해 주세요' }) : t));
-    } catch {
-      patch(reply.id, (t) => (ac.signal.aborted ? endTurn(t, 'stopped') : endTurn(t, 'error', { code: 'network', message: '인터넷 연결을 확인해 주세요' })));
-    } finally {
-      abort.current = null;
-      setBusy(false);
+    const res = await fetch(COACH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ threadId: thread, message, images: [], history, snapshot: coachSnapshot(env, timeZone()) }),
+      signal: ac.signal,
+    });
+    if (!res.ok || !res.body) {
+      const j = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      const code = (j?.error?.code ?? 'upstream') as NonNullable<AssistantTurn['error']>['code'];
+      patch(reply.id, (t) => endTurn(t, 'error', { code, message: j?.error?.message ?? '코치에 연결하지 못했습니다' }));
+      return;
     }
-  }, [env, patch]);
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    const feed = createSSEParser();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const events = feed(value);
+      if (events.length) patch(reply.id, (t) => events.reduce((acc, e) => reduceTurn(acc, e), t));
+    }
+    patch(reply.id, (t) => (t.status === 'streaming' ? endTurn(t, 'error', { code: 'network', message: '연결이 끊겼습니다. 다시 시도해 주세요' }) : t));
+  } catch {
+    patch(reply.id, (t) => (ac.signal.aborted ? endTurn(t, 'stopped') : endTurn(t, 'error', { code: 'network', message: '인터넷 연결을 확인해 주세요' })));
+  } finally {
+    abort = null;
+    setState((s) => ({ ...s, busy: false }));
+  }
+}
 
-  const stop = useCallback(() => abort.current?.abort(), []);
-
-  const reset = useCallback(() => {
-    abort.current?.abort();
-    undos.current.clear();
-    thread.current = Crypto.randomUUID();
-    setTurns([]);
-  }, []);
-
-  const apply = useCallback((turnId: string, card: CoachCard): string | null => {
-    const r = applyCard(env, card);
-    if (!r.ok) return r.error;
-    undos.current.set(card.id, r.undo);
-    patch(turnId, (t) => setCardState(t, card.id, 'applied'));
-    return null;
-  }, [env, patch]);
-
-  const undo = useCallback((turnId: string, cardId: string) => {
-    const u = undos.current.get(cardId);
-    if (!u) return;
-    u();
-    undos.current.delete(cardId);
-    patch(turnId, (t) => setCardState(t, cardId, 'undone'));
-  }, [patch]);
-
-  const retry = useCallback(() => {
-    const ts = turnsRef.current;
-    const lastUser = [...ts].reverse().find((t): t is UserTurn => t.role === 'user');
-    if (!lastUser || abort.current) return;
-    const at = ts.lastIndexOf(lastUser);
-    turnsRef.current = ts.slice(0, at);
-    setTurns(ts.slice(0, at));
-    void send(lastUser.text);
-  }, [send]);
-
-  return { turns, busy, send, stop, reset, apply, undo, retry };
+export function useCoachChat(env: Env) {
+  const { turns, busy } = useSyncExternalStore(subscribe, getState, getState);
+  return {
+    turns,
+    busy,
+    send: (text: string) => send(env, text),
+    stop: () => abort?.abort(),
+    reset: () => {
+      abort?.abort();
+      undos.clear();
+      thread = Crypto.randomUUID();
+      setState(() => ({ turns: [], busy: false }));
+    },
+    apply: (turnId: string, card: CoachCard): string | null => {
+      const r = applyCard(env, card);
+      if (!r.ok) return r.error;
+      undos.set(card.id, r.undo);
+      patch(turnId, (t) => setCardState(t, card.id, 'applied'));
+      return null;
+    },
+    undo: (turnId: string, cardId: string) => {
+      const u = undos.get(cardId);
+      if (!u) return;
+      u();
+      undos.delete(cardId);
+      patch(turnId, (t) => setCardState(t, cardId, 'undone'));
+    },
+    retry: () => {
+      const lastUser = [...state.turns].reverse().find((t): t is UserTurn => t.role === 'user');
+      if (!lastUser || abort) return;
+      const at = state.turns.lastIndexOf(lastUser);
+      setState((s) => ({ ...s, turns: s.turns.slice(0, at) }));
+      void send(env, lastUser.text);
+    },
+  };
 }

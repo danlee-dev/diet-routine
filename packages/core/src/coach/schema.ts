@@ -4,7 +4,13 @@
 // is parsed with one of these before use.
 import { z } from 'zod';
 
-const dateZ = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD');
+const dateZ = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').refine((d) => {
+  const [y, m, day] = d.split('-').map(Number);
+  const t = new Date(Date.UTC(y!, m! - 1, day!));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m! - 1 && t.getUTCDate() === day;
+}, 'not a calendar date');
+/** clock-looking times ("18:30") must be real clock times; other text is a label */
+const timeText = (max: number) => text(max).refine((s) => !/^\d{1,2}:\d{2}$/.test(s) || (Number(s.split(':')[0]) < 24 && Number(s.split(':')[1]) < 60), 'invalid clock time');
 const clockZ = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM');
 const text = (max: number) => z.string().trim().max(max);
 const num = (min: number, max: number) => z.number().finite().min(min).max(max);
@@ -201,7 +207,7 @@ export const PlanChangeZ = z.object({
   slot: MealKeyZ,
   remove: z.boolean().optional().describe('true 면 이 끼니를 식단표에서 뺀다'),
   name: text(30).optional(),
-  time: text(30).optional().describe('끼니 시간 문구, 예: "저녁 먹기 전", "18:30"'),
+  time: timeText(30).optional().describe('끼니 시간 문구, 예: "저녁 먹기 전", "18:30"'),
   items: z.array(PlanItemZ).min(1).max(10).optional().describe('끼니의 음식 전체 목록 (바뀌지 않는 항목도 포함)'),
   kcal: num(0, 2500).optional().describe('items 를 바꿔 칼로리가 달라질 때 새 끼니 합계'),
   protein: num(0, 250).optional(),
@@ -223,7 +229,7 @@ export const ProposeDayAdjustmentInputZ = z.object({
   protein_delta: num(-150, 150),
   items: z.array(PlanItemZ).min(1).max(10).optional().describe('kind=edit 일 때 오늘 그 끼니의 음식 전체 목록'),
   reason: text(200),
-});
+}).refine((v) => (v.kind !== 'cut' || v.kcal_delta <= 0) && (v.kind !== 'add' || v.kcal_delta >= 0), { message: 'cut needs kcal_delta <= 0, add needs >= 0', path: ['kcal_delta'] });
 
 export const RebalanceTodayInputZ = z.object({
   reason: text(200).describe('왜 다시 맞추는지, 예: "점심 순대국으로 450kcal 초과"'),
@@ -288,7 +294,11 @@ export const CardZ = z.object({
   id: text(64).min(1),
   kind: z.enum(['log_food', 'plan_change', 'day_adjustment', 'rebalance', 'skip_meal', 'workout']),
   title: text(100).min(1),
-  lines: z.array(z.object({ label: text(40), before: text(200).optional(), after: text(200) })).max(12),
+  lines: z.array(z.object({ label: text(40), before: text(300).optional(), after: text(300) })).max(12),
+  /** the day the card was made for (the snapshot date); plan and adjustment cards from an earlier day are refused */
+  day: dateZ,
+  /** cards from the same turn this card's numbers assume are applied */
+  dependsOn: z.array(text(64)).max(10).optional(),
   /** change of today's projected totals if the card is applied */
   delta: z.object({ kcal: num(-20000, 20000), protein: num(-2000, 2000) }),
   totals: z.object({

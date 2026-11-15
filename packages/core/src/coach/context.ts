@@ -65,14 +65,15 @@ export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
     .map((e) => ({ name: e.name.slice(0, 80), kcal: clamp(r(e.kcal), 0, 5000), protein: clamp(r(e.protein_g), 0, 400) }));
 
   const today = ctx.key;
-  const weights = i.weights.filter((w) => !w.deleted_at && w.date <= today).sort((a, b) => a.date.localeCompare(b.date));
+  // same validity rule as the weight chart (weight.ts): a typo like 7.6 never reaches the coach
+  const weights = i.weights.filter((w) => !w.deleted_at && w.date <= today && w.kg > 30 && w.kg < 200).sort((a, b) => a.date.localeCompare(b.date));
   const series = weights.slice(-14).map((w) => ({ date: w.date, kg: round1(w.kg) }));
   const points = weightSeries(i.program, weights, ctx.idx);
   const tr = trend(points);
   const stats = weightStats(i.program, points);
 
   const recent = i.workouts.filter((w) => !w.deleted_at && w.date <= today).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14)
-    .map((w) => ({ date: w.date, type: w.type, minutes: w.duration_s != null ? r(w.duration_s / 60) : null, rounds: w.rounds }));
+    .map((w) => ({ date: w.date, type: w.type, minutes: w.duration_s != null ? clamp(r(w.duration_s / 60), 0, 1000) : null, rounds: w.rounds != null ? clamp(w.rounds, 0, 50) : null }));
 
   const wp = i.workoutPlan;
   const target = i.target;
@@ -124,5 +125,7 @@ export function snapshotForModel(s: CoachSnapshot): string {
   const { planOverride: _o, adjustments, week, ...rest } = s;
   const adj = adjustments.map((a) => ({ slot: a.slot, label: a.change.label, kcal: a.change.kcal_delta, ...(a.change.workout ? { session: a.change.workout } : {}) }));
   const days = ['일', '월', '화', '수', '목', '금', '토'];
-  return `<context>\n${JSON.stringify({ ...rest, week: week.map((d, i) => `${i}(${days[i]}): ${d.t}`), todayAdjustments: adj })}\n</context>`;
+  // '<' escaped so a food name or note like "</context>" cannot close the data block early
+  const json = JSON.stringify({ ...rest, week: week.map((d, i) => `${i}(${days[i]}): ${d.t}`), todayAdjustments: adj }).replace(/</g, '\\u003c');
+  return `<context>\n${json}\n</context>`;
 }

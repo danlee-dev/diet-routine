@@ -3,11 +3,12 @@
 // Plan and adjustment rows go through the shared plan API (plan.ts) with source 'ai', the card title as the
 // note and the chat message id, so the plan screens can show "코치가 바꿈" and link back to the conversation.
 import {
-  keyOf, withMeal, withRoutineItems, withWeekDay,
-  type MealEntryRow, type MealKey, type MealOverride, type PlanOverride, type RoutineKey, type WeightRow, type WorkoutRow,
+  keyOf, withMeal, withRoutineItems,
+  type MealEntryRow, type MealKey, type MealOverride, type PlanOverride, type PlanRow, type RoutineDef, type RoutineKey, type WeekType,
+  type WeightRow, type WorkoutRow,
 } from '@diet/core';
 import { buildSnapshot, CardZ, type CardRow, type CoachCard, type CoachSnapshot } from '@diet/core/coach';
-import { entriesFor, skipMeal, todayView, type Env, type Undo } from './model';
+import { skipMeal, todayView, type Env, type Undo } from './model';
 import { addAdjustments, effectivePlan, planMeta, savePlan, setTodaySession } from './plan';
 import { workoutPlan } from './today';
 
@@ -36,20 +37,86 @@ export function coachSnapshot(env: Env, timeZone?: string): CoachSnapshot {
   });
 }
 
-/** Fold a plan patch onto the plan in effect on its date (so a card never carries stale edits from other cards). */
-function patchPlan(env: Env, row: Extract<CardRow, { op: 'plan' }>): PlanOverride {
-  let next: PlanOverride = effectivePlan(env, row.effective_from) ?? {};
-  for (const [k, m] of Object.entries(row.meals ?? {}) as [MealKey, MealOverride | null][]) next = withMeal(next, k, m);
-  for (const [d, t] of Object.entries(row.week ?? {})) if (t) next = withWeekDay(next, Number(d), t);
-  for (const [k, items] of Object.entries(row.routines ?? {}) as [RoutineKey, NonNullable<typeof row.routines>[RoutineKey]][]) if (items) next = withRoutineItems(next, k, items);
+type PlanPatch = Extract<CardRow, { op: 'plan' }>;
+/** previous values of everything a patch touched, to undo just that patch later */
+interface PlanInverse {
+  meals: [MealKey, MealOverride | undefined][];
+  week: [string, WeekType | undefined][];
+  routines: [RoutineKey, RoutineDef['items'] | undefined][];
+}
+
+const setWeek = (o: PlanOverride, dow: string, t: WeekType | undefined): PlanOverride => {
+  const week = { ...o.workout?.week };
+  if (t) week[dow] = t; else delete week[dow];
+  return { ...o, workout: { ...o.workout, week } };
+};
+const setRoutine = (o: PlanOverride, k: RoutineKey, items: RoutineDef['items'] | undefined): PlanOverride => {
+  if (items) return withRoutineItems(o, k, items);
+  const routines = { ...o.workout?.routines };
+  delete routines[k];
+  return { ...o, workout: { ...o.workout, routines } };
+};
+
+/** Fold a patch onto a plan version. Meal fields merge onto the meal as it is now, so a card never carries stale edits. */
+function foldPatch(base: PlanOverride, row: PlanPatch): { next: PlanOverride; inverse: PlanInverse } {
+  let next = base;
+  const inverse: PlanInverse = { meals: [], week: [], routines: [] };
+  for (const [k, m] of Object.entries(row.meals ?? {}) as [MealKey, MealOverride | null][]) {
+    const prev = next.meals?.[k];
+    inverse.meals.push([k, prev]);
+    next = withMeal(next, k, m ? { ...prev, ...m } : null);
+  }
+  for (const [d, t] of Object.entries(row.week ?? {})) {
+    if (!t) continue;
+    inverse.week.push([d, next.workout?.week?.[d]]);
+    next = setWeek(next, d, t);
+  }
+  for (const [k, items] of Object.entries(row.routines ?? {}) as [RoutineKey, RoutineDef['items'] | undefined][]) {
+    if (!items) continue;
+    inverse.routines.push([k, next.workout?.routines?.[k]?.items]);
+    next = setRoutine(next, k, items);
+  }
+  return { next, inverse };
+}
+
+function unfold(cur: PlanOverride, inv: PlanInverse): PlanOverride {
+  let next = cur;
+  for (const [k, m] of inv.meals) next = withMeal(next, k, m ?? null);
+  for (const [d, t] of inv.week) next = setWeek(next, d, t);
+  for (const [k, items] of inv.routines) next = setRoutine(next, k, items);
   return next;
+}
+
+const canon = (o: PlanOverride | null) => JSON.stringify({ meals: o?.meals ?? {}, workout: o?.workout ?? null });
+
+/**
+ * Save a plan patch from its date on. Later-dated versions (e.g. "내일부터" saved earlier) get the same patch,
+ * otherwise they would hide it from that day on. Undo reverts only this patch, whatever else changed since.
+ */
+function applyPlanPatch(env: Env, row: PlanPatch, card: CoachCard): Undo {
+  const dates = [row.effective_from, ...new Set(env.store.where<PlanRow>('plans', (r) => r.effective_from > row.effective_from).map((r) => r.effective_from))].sort();
+  const done: { date: string; written: string; inverse: PlanInverse; undo: Undo }[] = [];
+  for (const date of dates) {
+    const { next, inverse } = foldPatch(effectivePlan(env, date) ?? {}, row);
+    const undo = savePlan(env, next, { source: 'ai', note: row.note, from: date, chatMessageId: card.messageId ?? null });
+    done.push({ date, written: canon(next), inverse, undo });
+  }
+  return () => {
+    for (const d of [...done].reverse()) {
+      const cur = effectivePlan(env, d.date);
+      // nothing changed since: restore exactly (drops a version this card created); otherwise undo just this patch
+      if (canon(cur) === d.written) d.undo();
+      else savePlan(env, unfold(cur ?? {}, d.inverse), { source: 'ai', note: `되돌림: ${row.note}`, from: d.date });
+    }
+  };
 }
 
 /** Write one card row. Returns its undo. */
 function applyRow(env: Env, row: CardRow, card: CoachCard): Undo {
   switch (row.op) {
     case 'meal_entry': {
-      const replaced = row.slot === 'extra' ? [] : entriesFor(env, row.date).filter((e) => e.slot === row.slot);
+      // every live row of the slot, not just the deduped one (same as logFood), so none resurfaces later
+      const replaced = row.slot === 'extra' ? [] : env.store.where<MealEntryRow>('meal_entries', (e) => e.date === row.date && e.slot === row.slot);
       for (const e of replaced) env.store.remove('meal_entries', e.id);
       const entry: Omit<MealEntryRow, 'updated_at'> = {
         id: env.newId(), date: row.date, slot: row.slot, kind: row.slot === 'extra' ? 'extra' : 'replace', eaten_at: env.now().toISOString(),
@@ -60,13 +127,15 @@ function applyRow(env: Env, row: CardRow, card: CoachCard): Undo {
       env.store.put('meal_entries', entry);
       return () => {
         env.store.remove('meal_entries', entry.id);
-        for (const e of replaced) env.store.put('meal_entries', { ...e, deleted_at: null });
+        // bring back what this card replaced only if nothing newer took the slot meanwhile
+        const newer = row.slot !== 'extra' && env.store.where<MealEntryRow>('meal_entries', (e) => e.date === row.date && e.slot === row.slot).length > 0;
+        if (!newer) for (const e of replaced) env.store.put('meal_entries', { ...e, deleted_at: null });
       };
     }
     case 'skip_meal':
       return skipMeal(env, row.date, row.slot);
     case 'plan':
-      return savePlan(env, patchPlan(env, row), { source: 'ai', note: row.note, from: row.effective_from, chatMessageId: card.messageId ?? null });
+      return applyPlanPatch(env, row, card);
     case 'adjustment':
       return addAdjustments(env, [{ offset: 0, adj: { slot: row.slot, change: row.change, reason: row.reason, source: 'ai' } }], row.date, card.messageId ?? null);
     case 'session':
@@ -81,6 +150,9 @@ export type ApplyResult = { ok: true; undo: Undo } | { ok: false; error: string 
 export function applyCard(env: Env, card: CoachCard | unknown): ApplyResult {
   const parsed = CardZ.safeParse(card);
   if (!parsed.success) return { ok: false, error: '카드 형식이 올바르지 않아 적용하지 않았습니다' };
+  // plan and one-day changes from an earlier day would land on the wrong day; records of what was eaten still apply
+  const stale = parsed.data.day < keyOf(env.now()) && parsed.data.rows.some((r) => r.op === 'plan' || r.op === 'adjustment' || r.op === 'session');
+  if (stale) return { ok: false, error: '지난 날짜의 카드라 적용하지 않았습니다. 코치에게 다시 물어봐 주세요' };
   const undos: Undo[] = [];
   try {
     for (const row of parsed.data.rows) undos.push(applyRow(env, row, parsed.data));
