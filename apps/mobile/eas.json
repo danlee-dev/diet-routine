@@ -18,7 +18,8 @@
       "ios": {
         "appName": "감량 루틴 · 개인",
         "language": "ko",
-        "sku": "diet-routine-ios"
+        "sku": "diet-routine-ios",
+        "ascAppId": "6835028590"
       }
     }
   }
