@@ -10,6 +10,7 @@ import { ImportSheet, StepsSheet, TimeSheet, WeightSheet } from './sheets';
 import { ActionSheet, FoodSheet } from './sheets2';
 import { Today } from './views/Today';
 import { Records } from './views/Records';
+import { Runs } from './views/Runs';
 import { Plan, PLAN_TABS, type PlanTab } from './views/Plan';
 import { WorkoutPlayer } from './WorkoutPlayer';
 import { CommandPalette, type Command } from './CommandPalette';
@@ -19,8 +20,8 @@ import { Welcome } from './onboarding/Welcome';
 import { Onboarding } from './onboarding/Onboarding';
 import { DEFAULT_DRAFT, draftFromProfile } from './onboarding/answers';
 
-type View = 'today' | 'records' | 'plan';
-const VIEWS: [View, string, string][] = [['today', '오늘', 'calendar-check'], ['records', '기록', 'activity'], ['plan', '계획', 'signpost']];
+type View = 'today' | 'workout' | 'records' | 'plan';
+const VIEWS: [View, string, string][] = [['today', '오늘', 'calendar-check'], ['workout', '운동', 'route'], ['records', '기록', 'activity'], ['plan', '계획', 'signpost']];
 const isView = (h: string): h is View => VIEWS.some((v) => v[0] === h);
 
 /** Client-only gate: render nothing on the server so time and storage are read in the browser only. */
@@ -155,6 +156,7 @@ function Shell() {
     VIEWS.forEach(([k, l, i]) => c.push({ id: `go-${k}`, label: `${l} 보기`, icon: i, group: '이동', run: () => go(k) }));
     PLAN_TABS.forEach(([k, l]) => c.push({ id: `plan-${k}`, label: `계획 · ${l}`, icon: 'signpost', group: '이동', run: () => openPlan(k) }));
     c.push({ id: 'settings', label: '설정', icon: 'settings', group: '설정', keywords: '계정 로그인 로그아웃 동기화 구글 프로그램 버전', run: () => open(<SettingsSheet />) });
+    c.push({ id: 'runs-map', label: '내가 달린 길', icon: 'route', group: '이동', keywords: '달리기 러닝 지도 경로', run: () => go('workout') });
     c.push({ id: 'import', label: '예전 백업 코드 가져오기', icon: 'clipboard-paste', group: '설정', run: () => open(<ImportSheet />, { focus: 'textarea' }) });
     return c;
   })();
@@ -176,14 +178,16 @@ function Shell() {
       <main id="main">
         <section className="view is-active" aria-label={VIEWS.find((x) => x[0] === view)?.[1]} key={view}>
           {view === 'today' && <Today nav={{ startWorkout, openShop: () => openPlan('shop') }} />}
+          {view === 'workout' && <Runs />}
           {view === 'records' && <Records />}
           {view === 'plan' && <Plan tab={planTab} setTab={setPlanTab} onStartWorkout={startWorkout} onGoToday={() => go('today')} />}
         </section>
       </main>
       <nav className="bottombar" aria-label="메뉴">
         <button type="button" className="tab2" aria-current={view === 'today' ? 'page' : undefined} onClick={() => go('today')}><Icon name="calendar-check" size="lg" />오늘</button>
-        <button type="button" className="tab2" aria-current={view === 'records' ? 'page' : undefined} onClick={() => go('records')}><Icon name="activity" size="lg" />기록</button>
+        <button type="button" className="tab2" aria-current={view === 'workout' ? 'page' : undefined} onClick={() => go('workout')}><Icon name="route" size="lg" />운동</button>
         <button type="button" className="act-btn" aria-label="기록하기" onClick={() => open(<ActionSheet onStartWorkout={startWorkout} />)}><Icon name="plus" size="lg" /></button>
+        <button type="button" className="tab2" aria-current={view === 'records' ? 'page' : undefined} onClick={() => go('records')}><Icon name="activity" size="lg" />기록</button>
         <button type="button" className="tab2" aria-current={view === 'plan' ? 'page' : undefined} onClick={() => go('plan')}><Icon name="signpost" size="lg" />계획</button>
       </nav>
       <CommandPalette open={cmdk} onClose={() => setCmdk(false)} commands={commands} />

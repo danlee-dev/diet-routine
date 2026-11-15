@@ -32,3 +32,13 @@ export function intakeSeries(env: Env, dayIdx: number): IntakeDay[] {
   }
   return out;
 }
+
+/** Days already over (before `todayIdx`) with a log: their average and how many ended within the target. */
+export function intakeSummary(series: IntakeDay[], todayIdx: number): { days: number; avg: number | null; within: number } {
+  const closed = series.filter((d) => d.logged && d.i < todayIdx);
+  return {
+    days: closed.length,
+    avg: closed.length ? Math.round(closed.reduce((a, d) => a + d.eaten, 0) / closed.length) : null,
+    within: closed.filter((d) => d.eaten <= d.target).length,
+  };
+}

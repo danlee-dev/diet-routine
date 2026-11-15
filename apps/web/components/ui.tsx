@@ -129,8 +129,8 @@ export interface WheelItem {
   a?: string;
 }
 
-export function Wheel({ items, value, onChange, label, small, id }: {
-  items: WheelItem[]; value: number; onChange: (v: number) => void; label: string; small?: boolean; id?: string;
+export function Wheel({ items, value, onChange, label, small, wide, id }: {
+  items: WheelItem[]; value: number; onChange: (v: number) => void; label: string; small?: boolean; wide?: boolean; id?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const idxRef = useRef(-1);
@@ -184,7 +184,7 @@ export function Wheel({ items, value, onChange, label, small, id }: {
     <div
       ref={ref}
       id={id}
-      className={`wheel${small ? ' sm' : ''}`}
+      className={`wheel${small ? ' sm' : ''}${wide ? ' wide' : ''}`}
       tabIndex={0}
       role="spinbutton"
       aria-label={label}

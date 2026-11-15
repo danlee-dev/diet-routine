@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node scripts/copy-map-worker.mjs && next dev",
+    "build": "node scripts/copy-map-worker.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit"
@@ -15,6 +15,7 @@
     "@diet/data": "workspace:*",
     "@supabase/supabase-js": "2.119.0",
     "lucide-react": "^1.73.0",
+    "maplibre-gl": "^6.18.0",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",

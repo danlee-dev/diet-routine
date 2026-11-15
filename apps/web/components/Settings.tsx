@@ -2,13 +2,15 @@
 // Settings: account and sync, the program numbers, the rules that never change, legacy import and the app version.
 // Opened from the person button (top bar on wide screens, page title row on the phone) and from ⌘K.
 import { useRef, useState } from 'react';
-import { addDays, dateLabel, fmt, parseKey } from '@diet/core';
-import { profileOf, todayView, type SyncState } from '@diet/data';
+import { addDays, CITIES, dateLabel, fmt, parseKey } from '@diet/core';
+import { foodPresets, presetsCustomized, profileOf, setWeatherCity, todayView, weatherCity, type SyncState } from '@diet/data';
 import { useAuth, useEnv, useFlow } from '@/lib/hooks';
 import { APP_VERSION, authStore, getSupabase, signInWithGoogle, signOut } from '@/lib/client';
 import { Icon } from './Icon';
 import { SheetHead, useOverlay } from './ui';
 import { ImportSheet } from './sheets';
+import { PresetsSheet } from './PresetsSheet';
+import { coarsePosition, useWeatherLocation, weatherLocation } from '@/lib/weather';
 
 const SYNC_TEXT: Record<SyncState, string> = {
   local: '이 기기에만 저장 중입니다',
@@ -206,6 +208,38 @@ function Program() {
   );
 }
 
+/** Rain on walking days: this browser's rough position (only when switched on), otherwise a chosen city. */
+function Weather() {
+  const env = useEnv();
+  const useLoc = useWeatherLocation();
+  const city = weatherCity(env);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const toggle = async () => {
+    if (useLoc) { weatherLocation.set(false); setMsg(''); return; }
+    setBusy(true);
+    const pos = await coarsePosition();
+    setBusy(false);
+    if (!pos) { setMsg('위치를 받지 못해 고른 도시 기준으로 봅니다. 브라우저의 위치 권한을 확인해 주세요'); return; }
+    weatherLocation.set(true);
+    setMsg('이 기기의 대략적인 위치(약 10km 단위)로 예보를 봅니다');
+  };
+  return (
+    <>
+      <p className="s-lead">걷는 날 비나 눈 예보가 있으면 오늘 화면에서 집에서 하는 홈트로 바꾸자고 알려 줍니다. 예보는 Open-Meteo에서 받습니다.</p>
+      <div className="s-switch">
+        <span><b>이 기기 위치 사용</b><span>켜면 대략적인 위치만 씁니다. 이 브라우저에만 적용됩니다</span></span>
+        <button type="button" role="switch" className="switch" aria-checked={useLoc} aria-busy={busy} aria-label="이 기기 위치 사용" disabled={busy} onClick={() => void toggle()}><i /></button>
+      </div>
+      {msg && <p className="note" role="status" style={{ marginTop: 6 }}>{msg}</p>}
+      <p className="group-h">{useLoc ? '위치를 못 받을 때 쓸 도시' : '예보를 볼 도시'}</p>
+      <div className="slot-chips city-chips" role="group" aria-label="도시">
+        {CITIES.map((c) => <button key={c.id} type="button" aria-pressed={city.id === c.id} onClick={() => setWeatherCity(env, c.id)}>{c.name}</button>)}
+      </div>
+    </>
+  );
+}
+
 export function SettingsSheet() {
   const { open, close } = useOverlay();
   const env = useEnv();
@@ -236,6 +270,19 @@ export function SettingsSheet() {
             <li key={k.title}><Icon name={k.icon} /><div><b>{k.title}</b><span>{k.desc}</span></div></li>
           ))}
         </ul>
+      </section>
+
+      <section aria-labelledby="s-presets">
+        <h3 className="s-h" id="s-presets">자주 먹는 음식</h3>
+        <p className="s-lead">다르게 먹었어요에서 고르는 음식 {foodPresets(env).length}개{presetsCustomized(env) ? ' · 내가 바꾼 목록' : ' · 기본 목록'}</p>
+        <button type="button" className="btn-ghost pill" style={{ marginTop: 10 }} onClick={() => open(<PresetsSheet />)}>
+          <Icon name="pencil" size="sm" />목록 고치기
+        </button>
+      </section>
+
+      <section aria-labelledby="s-weather">
+        <h3 className="s-h" id="s-weather">날씨</h3>
+        <Weather />
       </section>
 
       <section aria-labelledby="s-legacy">
