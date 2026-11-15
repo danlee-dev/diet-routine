@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppState, useColorScheme } from 'react-native';
+import { useTheme } from '@/lib/theme';
 import type { Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
 import { EnvContext } from '@/lib/hooks';
@@ -21,6 +22,7 @@ const sheet = (detents: number[] | 'fitToContents' = 'fitToContents', opts: { wh
 
 export default function RootLayout() {
   const scheme = useColorScheme();
+  const t = useTheme();
   const [env, setEnv] = useState<Env | null>(null);
 
   useEffect(() => {
@@ -31,7 +33,8 @@ export default function RootLayout() {
   useEffect(() => {
     if (!env) return;
     const supa = getSupabase();
-    const sub = AppState.addEventListener('change', (st) => { if (st !== 'active') void env.store.flush(); });
+    // background: save the snapshot. foreground: catch up on anything changed elsewhere while realtime was asleep.
+    const sub = AppState.addEventListener('change', (st) => { if (st !== 'active') void env.store.flush(); else void env.store.refresh(); });
     if (!supa) return () => sub.remove();
     void supa.auth.getSession().then(({ data }) => { if (data.session) void env.store.attach(supa, data.session.user.id); });
     const { data: auth } = supa.auth.onAuthStateChange((evt, session) => {
@@ -53,7 +56,17 @@ export default function RootLayout() {
             <Stack.Screen name="sheet/steps" options={sheet()} />
             <Stack.Screen name="sheet/scenario" options={sheet()} />
             <Stack.Screen name="sheet/food" options={sheet([0.75, 1])} />
-            <Stack.Screen name="sheet/sync" options={sheet()} />
+            <Stack.Screen name="sheet/meal" options={sheet([0.8, 1])} />
+            <Stack.Screen name="sheet/routine" options={sheet([0.75, 1])} />
+            <Stack.Screen
+              name="settings"
+              options={{
+                presentation: 'modal', headerShown: true, title: '설정', headerLargeTitleEnabled: true,
+                headerShadowVisible: false, headerLargeTitleShadowVisible: false,
+                headerTitleStyle: { color: t.fg }, headerLargeTitleStyle: { color: t.fg, fontWeight: '300' },
+              }}
+            />
+            <Stack.Screen name="auth/callback" options={{ animation: 'none' }} />
             <Stack.Screen name="workout" options={{ presentation: 'fullScreenModal', headerShown: false }} />
             <Stack.Screen name="coach" options={{ presentation: 'modal', headerShown: false }} />
           </Stack>

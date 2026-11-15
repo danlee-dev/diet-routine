@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
-import { repMultiplier, ROUTINES, WEEK, workoutRounds, type RoutineKey } from '@diet/core';
+import { repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
 import { completeWorkout, todayView, toggleMeal } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
@@ -24,7 +24,7 @@ export default function WorkoutScreen() {
   const params = useLocalSearchParams<{ routine?: string }>();
   const key: RoutineKey = params.routine === 'B' ? 'B' : 'A';
   const v = todayView(env);
-  const [rounds] = useState(() => (WEEK[v.ctx.dow]!.t === 'light' ? 3 : workoutRounds(v.ctx.week)));
+  const [rounds] = useState(() => (v.session === 'light' ? 3 : workoutRounds(v.ctx.week)));
   const [round, setRound] = useState(1);
   const [idx, setIdx] = useState(0);
   const [phase, setPhase] = useState<Phase>('work');
@@ -36,7 +36,7 @@ export default function WorkoutScreen() {
   useEffect(() => { started.current = new Date(); }, []);
   const onDone = useRef<() => void>(() => {});
   const mult = repMultiplier(v.ctx.week);
-  const items = ROUTINES[key].items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
+  const items = v.routines[key].items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
   const cur = items[idx]!;
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
@@ -75,7 +75,7 @@ export default function WorkoutScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16, paddingHorizontal: 20 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ color: t.fg, fontWeight: '700', fontSize: 15 }}>{ROUTINES[key].name} · {phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</Text>
+        <Text style={{ color: t.fg, fontWeight: '700', fontSize: 15 }}>{v.routines[key].name} · {phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</Text>
         <Pressable accessibilityLabel="닫기" onPress={() => router.back()} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: t.surface, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="x" size={15} color={t.fg} weight="semibold" />
         </Pressable>
@@ -96,7 +96,7 @@ export default function WorkoutScreen() {
           <Text style={{ color: t.muted, fontSize: 14 }}>다음 라운드: {items[0]!.name} {items[0]!.n}{items[0]!.unit}</Text></>}
         {phase === 'done' && <><Text style={{ color: t.muted, fontSize: 13 }}>오늘 홈트 끝</Text>
           <Text style={{ color: t.fg, fontSize: 44, fontWeight: '300' }}>잘했습니다</Text>
-          <Text style={{ color: t.muted, fontSize: 14, textAlign: 'center' }}>{ROUTINES[key].name} {rounds}라운드를 마쳤습니다.{postDone ? '' : ' 이제 프로틴 + 우유를 마실 차례입니다.'}</Text></>}
+          <Text style={{ color: t.muted, fontSize: 14, textAlign: 'center' }}>{v.routines[key].name} {rounds}라운드를 마쳤습니다.{postDone ? '' : ' 이제 프로틴 + 우유를 마실 차례입니다.'}</Text></>}
       </View>
       <View style={{ gap: 10 }}>
         {phase === 'work' && (cur.unit === '초'

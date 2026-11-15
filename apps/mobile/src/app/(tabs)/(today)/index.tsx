@@ -1,18 +1,19 @@
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
-import { router, Stack } from 'expo-router';
+import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { fmt, hhmm, proteinGap, relText, ROUTINES, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
+import { fmt, hhmm, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
 import {
   focusNow, projectedOver, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
   type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
-import { useEnv, useMinuteTick } from '@/lib/hooks';
+import { useEnv, useMinuteTick, useRefresh } from '@/lib/hooks';
 import { getSupabase } from '@/lib/env';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn, Orb, useToast } from '@/components/ui';
+import { RebalanceCard } from '@/components/RebalanceCard';
 
 function useMealActions(v: TodayView) {
   const env = useEnv();
@@ -28,13 +29,10 @@ function SyncBanner({ t }: { t: Theme }) {
   const env = useEnv();
   if (!getSupabase() || env.store.syncState !== 'local') return null;
   return (
-    <Pressable onPress={() => router.push('/sheet/sync')} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, paddingLeft: 14, borderRadius: R.md, borderWidth: 1, borderColor: t.line }, squircle]}>
-      <Icon name="cloud-off" size={20} color={t.fg} />
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: t.fg, fontSize: 14.5, fontWeight: '600' }}>이 기기에만 저장 중이에요</Text>
-        <Text style={{ color: t.muted, fontSize: 13 }}>로그인하면 웹과 같은 기록을 봐요</Text>
-      </View>
-      <Text style={{ color: t.fg, fontSize: 13.5, fontWeight: '700' }}>로그인</Text>
+    <Pressable accessibilityRole="button" onPress={() => router.push('/settings')} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14, opacity: pressed ? 0.6 : 1 })}>
+      <Icon name="cloud-off" size={14} color={t.muted} />
+      <Text style={{ flex: 1, color: t.muted, fontSize: 13.5 }}>이 기기에만 저장 중입니다</Text>
+      <Text style={{ color: t.fg, fontSize: 13.5, fontWeight: '600' }}>로그인해서 웹과 맞추기</Text>
     </Pressable>
   );
 }
@@ -46,17 +44,14 @@ function Header({ v, t }: { v: TodayView; t: Theme }) {
   const over = projectedOver(env, v);
   return (
     <View style={{ gap: 8, marginBottom: 16 }}>
-      <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '500' }}>{v.ctx.label} · {v.ctx.week}주차 {v.ctx.no}일째</Text>
-      <Stack.Screen
-        options={{
-          headerRight: () => (
-            <Pressable accessibilityLabel={`오늘 상황: ${sc.name}. 바꾸기`} onPress={() => router.push('/sheet/scenario')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, height: 34 }}>
-              <Icon name={sc.icon} size={15} color={t.fg} />
-              <Text style={{ color: t.fg, fontSize: 14, fontWeight: '600' }}>{sc.name}</Text>
-            </Pressable>
-          ),
-        }}
-      />
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <Text style={{ color: t.muted, fontSize: 13.5, flexShrink: 1 }} numberOfLines={1}>{v.ctx.label} · {v.ctx.no}일째</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={`오늘 상황: ${sc.name}. 바꾸기`} hitSlop={8} onPress={() => router.push('/sheet/scenario')} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: pressed ? 0.6 : 1 })}>
+          <Icon name={sc.icon} size={14} color={t.fg} />
+          <Text style={{ color: t.fg, fontSize: 13.5, fontWeight: '600' }}>{sc.name}</Text>
+          <Icon name="chevron-down" size={10} color={t.muted} weight="semibold" />
+        </Pressable>
+      </View>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <Text style={{ color: t.muted, fontSize: 13.5, flexShrink: 1 }}>
           <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{fmt(v.sum.eaten)}</Text> / {fmt(left + v.sum.eaten)} kcal{over > 0 ? ` · 계획대로면 +${fmt(over)}` : ''}
@@ -93,7 +88,7 @@ function FocusCard({ f, v, t }: { f: Focus; v: TodayView; t: Theme }) {
     );
   }
   if (f.kind === 'workout') {
-    const r = ROUTINES[f.routine];
+    const r = v.routines[f.routine];
     return (
       <View style={box}>{orb}{k(`홈트 시간 · ${hhmm(f.at)}쯤`)}{title(r.name)}
         <Text style={{ color: t.fg, fontSize: 13.5, fontWeight: '600', marginTop: 6 }}>{r.focus} · {workoutRounds(v.ctx.week)}라운드 · 약 25분</Text>
@@ -133,10 +128,14 @@ function FocusCard({ f, v, t }: { f: Focus; v: TodayView; t: Theme }) {
       </View>
       {acts(<>
         <Btn label="먹었어요" icon="check" onPress={() => act.eat(m.key)} />
-        <Btn label="다르게 먹었어요" kind="ghost" onPress={() => act.other(m.key)} />
-        <Btn label="건너뛰기" kind="ghost" onPress={() => act.skip(m.key)} />
+        <Btn label="다르게 · 일부만" kind="ghost" onPress={() => act.other(m.key)} />
       </>)}
-      {meta(`${m.est ? '약 ' : ''}${fmt(m.kcal)}kcal · 단백질 ${m.protein}g${m.hint ? ` · ${m.hint}` : ''}`)}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginTop: 12 }}>
+        <Text style={{ flex: 1, color: t.muted, fontSize: 12.5, lineHeight: 18 }}>{`${m.est ? '약 ' : ''}${fmt(m.kcal)}kcal · 단백질 ${m.protein}g${m.hint ? ` · ${m.hint}` : ''}`}</Text>
+        <Pressable accessibilityRole="button" hitSlop={10} onPress={() => act.skip(m.key)}>
+          <Text style={{ color: t.fg2, fontSize: 13.5, fontWeight: '600' }}>건너뛰기</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -183,8 +182,8 @@ function Reco({ v, t }: { v: TodayView; t: Theme }) {
     else router.push('/sheet/scenario');
   };
   return (
-    <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12, padding: 12, paddingLeft: 14, borderRadius: R.md, borderWidth: 1, borderColor: t.line }, squircle]}>
-      <Icon name={r.icon} size={20} color={t.fg} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, paddingVertical: 12, paddingHorizontal: 4 }}>
+      <Icon name={r.icon} size={18} color={t.fg2} />
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={{ color: t.fg, fontSize: 14.5, fontWeight: '600' }}>{r.title}</Text>
         <Text style={{ color: t.muted, fontSize: 13 }}>{r.body}</Text>
@@ -259,14 +258,20 @@ export default function TodayScreen() {
   const f = focusNow(env, v);
   const items = timeline(env, v);
   const [open, setOpen] = useState<string | null>(null);
+  const refresh = useRefresh();
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: t.bg }}
+      contentInsetAdjustmentBehavior="automatic"
+      refreshControl={<RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={t.muted} />}
+      contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
       <Header v={v} t={t} />
       <SyncBanner t={t} />
       <FocusCard f={f} v={v} t={t} />
+      <RebalanceCard v={v} />
       <QuickLog v={v} t={t} />
       <Reco v={v} t={t} />
-      <Text style={{ color: t.fg2, fontSize: 13, fontWeight: '700', marginTop: 28, marginBottom: 6 }}>오늘 흐름</Text>
+      <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', marginTop: 24, marginBottom: 4 }}>오늘 흐름</Text>
       {items.map((it) => <Row key={it.id} it={it} v={v} t={t} open={open} setOpen={setOpen} />)}
     </ScrollView>
   );

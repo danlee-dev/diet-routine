@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_PROGRAM } from '@diet/core';
-import { completeWorkout, DataStore, logFood, setDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
+import { completeWorkout, DataStore, logFood, setDay, setMealOverride, setRoutineItems, setTodaySession, setWeekDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
 
 const env = Object.fromEntries(
   readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
@@ -24,6 +24,10 @@ logFood(e, { date: d, slot: 'lunch', name: '후라이드 치킨', amount: '반 �
 setWeight(e, d, 75.4);
 toggleChecklist(e, 'shop', 'n1');
 completeWorkout(e, d, 'B', { rounds: 3, startedAt: new Date(), endedAt: new Date() });
+setWeekDay(e, 0, 'walk');
+setRoutineItems(e, 'A', [{ name: '푸시업', n: 15, unit: '회' }]);
+setMealOverride(e, 'snack', { removed: true, note: '간식 빼기' }, 'ai');
+setTodaySession(e, 'A');
 await store.flush();
 
 const snap = JSON.parse(snapshot.value!) as { tables: Record<string, Record<string, Record<string, unknown>>> };

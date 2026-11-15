@@ -1,10 +1,10 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { fmt } from '@diet/core';
 import { setWater, skipMeal, todayView, toggleMeal, workoutPlan } from '@diet/data';
-import { useEnv } from '@/lib/hooks';
+import { useEnv, useRefresh } from '@/lib/hooks';
 import { R, squircle, useTheme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { useToast } from '@/components/ui';
@@ -15,6 +15,7 @@ export default function LogScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { toast } = useToast();
+  const refresh = useRefresh();
   const v = todayView(env);
   const wp = workoutPlan(env, v);
   const next = v.next;
@@ -31,7 +32,7 @@ export default function LogScreen() {
   tiles.push({ id: 'steps', icon: 'footprints', title: '걸음', sub: `${fmt(v.day.steps)} / ${fmt(v.stepsGoal)}보`, run: () => router.push('/sheet/steps') });
   if (wp) tiles.push({ id: 'wo', icon: 'play', title: `홈트 ${wp.routine} 시작`, sub: wp.done ? '오늘 완료 · 다시 하기' : '따라하기', run: () => router.push({ pathname: '/workout', params: { routine: wp.routine } }) });
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
+    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" refreshControl={<RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={t.muted} />} contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
       <Text style={{ color: t.muted, fontSize: 13, marginBottom: 14 }}>{v.ctx.label}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {tiles.map((x) => (

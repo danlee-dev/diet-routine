@@ -1,12 +1,14 @@
 // View models and actions on top of the store. Web and iPhone call these same functions,
 // so a check on one device produces exactly the same rows and totals on the other.
 import {
-  addDays, dayCtx, mealCheckId, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
+  addDays, adjustedTarget, applyPlanChanges, partialMeal, dayCtx, effectiveRoutines, effectiveWeek, mealCheckId, sessionFor, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
   programDate, programKey, rolling7, stepsGoal, summary, weightSeries, weightStats,
   type ChecklistRow, type DayCtx, type DayRow, type EatoutSlot, type MealEntryRow, type MealKey, type PlannedMeal,
-  type Program, type RoutineKey, type ScenId, type Summary, type WeightRow, type WorkoutRow,
+  type AdjustedMeal, type DayAdjustment, type PlanOverride, type Program, type RoutineDef, type RoutineKey, type ScenId, type Summary,
+  type WeekType, type WeightRow, type WorkoutRow,
 } from '@diet/core';
 import type { DataStore } from './store';
+import { adjustmentsFor, effectivePlan } from './plan';
 
 export interface Env {
   store: DataStore;
@@ -70,8 +72,18 @@ export interface TodayView {
   day: DayRow;
   scen: ScenId;
   eatout: EatoutSlot;
-  meals: PlannedMeal[];
+  /** today's meals after plan versions and day adjustments */
+  meals: AdjustedMeal[];
   entries: MealEntryRow[];
+  /** plan version in effect today (null = built-in) and today's one-day changes */
+  override: PlanOverride | null;
+  adjustments: DayAdjustment[];
+  /** weekly schedule and routines after edits; today's session after one-day changes */
+  week: { t: WeekType; label: string }[];
+  routines: Record<RoutineKey, RoutineDef>;
+  session: WeekType;
+  /** kcal target after carried-over adjustments */
+  target: number;
   eaten: Set<MealKey>;
   /** slots intentionally skipped (subset of eaten) */
   skipped: Set<MealKey>;
@@ -88,13 +100,17 @@ export function todayView(env: Env): TodayView {
   const day = dayRow(env, ctx.key);
   const scen = day.scenario ?? defaultScen(ctx.dow);
   const eatout = day.eatout_slot ?? 'lunch';
-  const meals = plan({ scen, eatout, wake: day.wake_min });
+  const override = effectivePlan(env, ctx.key);
+  const adjustments = adjustmentsFor(env, ctx.key);
+  const meals = mealsFor(env, ctx.key);
   const entries = entriesFor(env, ctx.key);
   const eaten = new Set<MealKey>();
   const skipped = new Set<MealKey>();
   for (const e of entries) if (e.slot !== 'extra') { eaten.add(e.slot); if (e.kind === 'skip') skipped.add(e.slot); }
   return {
     ctx, nowMin: minutesOf(now), day, scen, eatout, meals, entries, eaten, skipped,
+    override, adjustments, week: effectiveWeek(override), routines: effectiveRoutines(override), session: sessionFor(ctx.dow, override, adjustments),
+    target: adjustedTarget(day.kcal_target ?? env.program.baseKcal, adjustments),
     sum: summary(meals, entries),
     next: meals.find((m) => !eaten.has(m.key)),
     stepsGoal: stepsGoal(ctx.week),
@@ -155,14 +171,41 @@ export function setDay(env: Env, date: string, patch: Partial<DayRow>): void {
 }
 
 /** Toggle a planned meal as eaten. Returns undo when it was just marked. */
+/** The day's meals as planned: situation and wake time, then plan versions and that day's adjustments. */
+export function mealsFor(env: Env, date: string): AdjustedMeal[] {
+  const d = dayRow(env, date);
+  return applyPlanChanges(plan({ scen: d.scenario ?? 'home', eatout: d.eatout_slot ?? 'lunch', wake: d.wake_min }), effectivePlan(env, date), adjustmentsFor(env, date));
+}
+
+/**
+ * Ate the planned meal but not all of it ("간식에서 견과는 안 먹었어요"). Keeps one row per slot (same id as
+ * the plan check), with the kept items and kcal/protein reduced to match.
+ */
+export function eatPartial(env: Env, date: string, key: MealKey, keep: boolean[]): Undo {
+  const m = mealsFor(env, date).find((x) => x.key === key);
+  if (!m) return () => {};
+  const prev = entriesFor(env, date).filter((e) => e.slot === key);
+  for (const e of prev) env.store.remove('meal_entries', e.id);
+  const p = partialMeal(m, keep);
+  const id = mealCheckId(date, key);
+  env.store.put<MealEntryRow>('meal_entries', {
+    ...planEntry(m, date, id, env.now()),
+    kind: 'replace', name: `${m.name} (일부)`, items: p.kept, kcal: p.kcal, protein_g: p.protein,
+    note: p.dropped.length ? `안 먹음: ${p.dropped.map((x) => x.name).join(', ')}` : null,
+  });
+  return () => {
+    env.store.remove('meal_entries', id);
+    for (const e of prev) env.store.put('meal_entries', { ...e, deleted_at: null });
+  };
+}
+
 export function toggleMeal(env: Env, date: string, key: MealKey): { added: boolean; undo: Undo } {
   const live = entriesFor(env, date).filter((e) => e.slot === key);
   if (live.length) {
     for (const e of live) env.store.remove('meal_entries', e.id);
     return { added: false, undo: () => { for (const e of live) env.store.put('meal_entries', { ...e, deleted_at: null }); } };
   }
-  const d = dayRow(env, date);
-  const m = plan({ scen: d.scenario ?? 'home', eatout: d.eatout_slot ?? 'lunch', wake: d.wake_min }).find((x) => x.key === key);
+  const m = mealsFor(env, date).find((x) => x.key === key);
   if (!m) return { added: false, undo: () => {} };
   // same id on every device for this (date, slot): checks from phone and desktop merge into one row
   const row = planEntry(m, date, mealCheckId(date, key), env.now());

@@ -1,6 +1,6 @@
 // The meal plan as data (user/coach overrides + day adjustments) and the rebalancing engine.
 // Rule of thumb: trim carbs and extras first, never protein; spread what cannot fit today over the next days.
-import { CUTS, PROTEIN_ADDS, type Cut, type MealKey, type PlanItem } from './data';
+import { CUTS, PROTEIN_ADDS, ROUTINES, WEEK, type Cut, type MealKey, type PlanItem, type RoutineDef, type RoutineKey, type WeekType } from './data';
 import type { Slot } from './db';
 import type { PlannedMeal } from './schedule';
 
@@ -17,18 +17,69 @@ export interface MealOverride {
   note?: string;
 }
 
+/** Changes to the weekly workout plan (stored with the meal plan in `plans`). */
+export interface WorkoutOverride {
+  /** session per weekday, keyed by Date.getDay() as a string ("0" = Sunday) */
+  week?: Partial<Record<string, WeekType>>;
+  /** a routine's exercises at base reps (the weekly multiplier still applies) */
+  routines?: Partial<Record<RoutineKey, { items: RoutineDef['items'] }>>;
+}
+
 export interface PlanOverride {
   meals?: Partial<Record<MealKey, MealOverride>>;
+  workout?: WorkoutOverride;
 }
+
+export const WEEK_LABEL: Record<WeekType, string> = { rest: '휴식', A: 'A', B: 'B', walk: '걷기', light: '가볍게' };
+export const WEEK_TYPES: WeekType[] = ['A', 'B', 'walk', 'light', 'rest'];
+
+/** The weekly schedule after overrides. Index = Date.getDay(). */
+export function effectiveWeek(o?: PlanOverride | null): { t: WeekType; label: string }[] {
+  return WEEK.map((d, i) => {
+    const t = o?.workout?.week?.[String(i)] ?? d.t;
+    return { t, label: WEEK_LABEL[t] };
+  });
+}
+
+/** Routines after overrides. */
+export function effectiveRoutines(o?: PlanOverride | null): Record<RoutineKey, RoutineDef> {
+  const r = o?.workout?.routines;
+  return {
+    A: r?.A?.items?.length ? { ...ROUTINES.A, items: r.A.items } : ROUTINES.A,
+    B: r?.B?.items?.length ? { ...ROUTINES.B, items: r.B.items } : ROUTINES.B,
+  };
+}
+
+/** Today's session: the weekly plan, unless a one-day adjustment changed it. */
+export function sessionFor(dow: number, o?: PlanOverride | null, adjustments: DayAdjustment[] = []): WeekType {
+  let t = effectiveWeek(o)[dow]!.t;
+  for (const a of adjustments) if (a.change.kind === 'workout' && a.change.workout) t = a.change.workout;
+  return t;
+}
+
+// ---- pure edits (return a new override) ----
+export const withWeekDay = (o: PlanOverride | null | undefined, dow: number, t: WeekType): PlanOverride => ({
+  ...o, workout: { ...o?.workout, week: { ...o?.workout?.week, [String(dow)]: t } },
+});
+export const withRoutineItems = (o: PlanOverride | null | undefined, key: RoutineKey, items: RoutineDef['items']): PlanOverride => ({
+  ...o, workout: { ...o?.workout, routines: { ...o?.workout?.routines, [key]: { items } } },
+});
+export const withMeal = (o: PlanOverride | null | undefined, key: MealKey, m: MealOverride | null): PlanOverride => {
+  const meals = { ...o?.meals };
+  if (m) meals[key] = m; else delete meals[key];
+  return { ...o, meals };
+};
 
 /** A one-day change (stored in `plan_adjustments`). slot null = whole day (e.g. carried-over kcal). */
 export interface AdjustmentChange {
-  kind: 'cut' | 'add' | 'carry' | 'edit';
+  kind: 'cut' | 'add' | 'carry' | 'edit' | 'workout';
   kcal_delta: number;
   protein_delta?: number;
   label: string;
   cut_id?: string;
   items?: PlanItem[];
+  /** kind 'workout': today's session instead of the weekly plan */
+  workout?: WeekType;
 }
 
 export interface DayAdjustment {
@@ -57,7 +108,7 @@ export function applyPlanChanges(meals: PlannedMeal[], override?: PlanOverride |
       m = {
         ...m,
         ...(o.name ? { name: o.name } : {}),
-        ...(o.time ? { time: o.time } : {}),
+        ...(o.time ? { time: o.time, ...(/^\d{1,2}:\d{2}$/.test(o.time) ? { at: Number(o.time.split(':')[0]) * 60 + Number(o.time.split(':')[1]) } : {}) } : {}),
         ...(o.items ? { items: o.items } : {}),
         ...(o.kcal != null ? { kcal: o.kcal } : {}),
         ...(o.protein != null ? { protein: o.protein } : {}),
@@ -66,6 +117,7 @@ export function applyPlanChanges(meals: PlannedMeal[], override?: PlanOverride |
     }
     const mine = adjustments.filter((a) => a.slot === base.key);
     for (const a of mine) {
+      if (a.change.kind === 'workout') continue;
       if (a.change.kind === 'edit' && a.change.items) m.items = a.change.items;
       m.kcal = Math.max(0, m.kcal + a.change.kcal_delta);
       m.protein = Math.max(0, m.protein + (a.change.protein_delta ?? 0));
@@ -78,7 +130,7 @@ export function applyPlanChanges(meals: PlannedMeal[], override?: PlanOverride |
 
 /** Day target after carried-over kcal (slot null adjustments). */
 export const adjustedTarget = (base: number, adjustments: DayAdjustment[]): number =>
-  base + adjustments.filter((a) => a.slot == null).reduce((s, a) => s + a.change.kcal_delta, 0);
+  base + adjustments.filter((a) => a.slot == null && a.change.kind !== 'workout').reduce((s, a) => s + a.change.kcal_delta, 0);
 
 export interface RebalanceInput {
   /** today's meals after template overrides and existing adjustments */
