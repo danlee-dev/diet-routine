@@ -110,9 +110,11 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
     };
   }, [open]);
 
-  // a new move (fixed rounds): name and reps, the round on its first move
+  // a new move (fixed rounds): name and reps, the round on its first move; once per move
+  const lastMove = useRef('');
   useEffect(() => {
-    if (!open || min || phase !== 'work') return;
+    if (!open || min || phase !== 'work' || lastMove.current === `${round}:${idx}`) return;
+    lastMove.current = `${round}:${idx}`;
     say(cueMove(cur, { idx, total: items.length, round, rounds }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, min, phase, idx, round]);
@@ -131,7 +133,6 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
 
   const next = () => {
     stop();
-    if (phase === 'hold') say(cueHoldEnd);
     if (idx < items.length - 1) { setIdx(idx + 1); setPhase('work'); }
     else if (round < rounds) {
       setPhase('rest');
@@ -197,7 +198,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
     );
     foot = cur.unit === '초' ? (
       <>
-        <button type="button" className="btn-primary pill" onClick={() => { setPhase('hold'); say(cueHoldStart(cur), true); run(cur.n, () => { beep(); next(); }); }}><Icon name="timer" />{cur.n}초 타이머 시작</button>
+        <button type="button" className="btn-primary pill" onClick={() => { setPhase('hold'); say(cueHoldStart(cur), true); run(cur.n, () => { beep(); say(cueHoldEnd); next(); }); }}><Icon name="timer" />{cur.n}초 타이머 시작</button>
         <div className="row"><button type="button" className="btn-ghost pill" onClick={next}>타이머 없이 완료</button>{idx > 0 && <button type="button" className="btn-ghost pill" onClick={() => { stop(); setIdx(idx - 1); setPhase('work'); }}>이전</button>}</div>
       </>
     ) : (

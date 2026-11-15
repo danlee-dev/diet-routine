@@ -55,8 +55,11 @@ function RoundsPlayer() {
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
   useEffect(() => () => { stop(); stopWorkoutVoice(); }, []);
   // spoken cues: the move and reps when it comes up (the round on its first move), 3-2-1 at the end of holds and rests
+  const lastMove = useRef('');
   useEffect(() => {
-    if (phase === 'work') sayWorkout(cueMove(cur, { idx, total: items.length, round, rounds }));
+    if (phase !== 'work' || lastMove.current === `${round}:${idx}`) return;
+    lastMove.current = `${round}:${idx}`;
+    sayWorkout(cueMove(cur, { idx, total: items.length, round, rounds }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, idx, round]);
   useEffect(() => {
@@ -75,7 +78,6 @@ function RoundsPlayer() {
   }, []);
   const next = () => {
     stop();
-    if (phase === 'hold') sayWorkout(cueHoldEnd);
     if (idx < items.length - 1) { setIdx(idx + 1); setPhase('work'); }
     else if (round < rounds) { setPhase('rest'); sayWorkout(cueRest(60, items[0])); run(60, () => { sayWorkout(cueRoundGo); setRound((r) => r + 1); setIdx(0); setPhase('work'); buzz(); }); }
     else { setPhase('done'); completeWorkout(env, v.ctx.key, key, { rounds, startedAt: started.current ?? new Date(), endedAt: new Date() }); sayWorkout(cueDone(rounds)); buzz(); }
@@ -123,7 +125,7 @@ function RoundsPlayer() {
       </View>
       <View style={{ gap: 10 }}>
         {phase === 'work' && (cur.unit === '초'
-          ? <><Btn icon="timer" label={`${cur.n}초 타이머 시작`} style={{ height: 56 }} onPress={() => { setPhase('hold'); sayWorkout(cueHoldStart(cur), true); run(cur.n, () => { buzz(); next(); }); }} /><Btn kind="ghost" label="타이머 없이 완료" onPress={next} /></>
+          ? <><Btn icon="timer" label={`${cur.n}초 타이머 시작`} style={{ height: 56 }} onPress={() => { setPhase('hold'); sayWorkout(cueHoldStart(cur), true); run(cur.n, () => { buzz(); sayWorkout(cueHoldEnd); next(); }); }} /><Btn kind="ghost" label="타이머 없이 완료" onPress={next} /></>
           : <Btn icon="check" label={`${cur.n}${cur.unit.replace(' (양쪽)', '')} 했어요`} style={{ height: 56 }} onPress={next} />)}
         {phase === 'hold' && <Btn icon="check" label="끝났어요" style={{ height: 56 }} onPress={next} />}
         {phase === 'rest' && <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'center' }}>

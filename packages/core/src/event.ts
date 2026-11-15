@@ -180,8 +180,9 @@ export function planEvent(i: PlanEventInput): EventPlan {
     { slot: i.slot, source: 'ai', reason, change: { kind: 'edit', kcal_delta: budget - planned, protein_delta: Math.round(eventProtein - (event?.protein ?? 0)), label: `${i.label} · 약 ${fmt(budget)}kcal`, items } },
   ];
 
+  const order: MealKey[] = ['breakfast', 'lunch', 'snack', 'post', 'dinner'];
   const parts = [
-    ...cuts.map((c) => `${SLOT_NAME[c.slot]} ${c.label}`),
+    ...[...cuts].sort((a, b) => order.indexOf(a.slot) - order.indexOf(b.slot)).map((c) => `${SLOT_NAME[c.slot]} ${c.label}`),
     ...(proteinAdd ? [proteinAdd.label] : []),
     `${i.label}은 약 ${fmt(budget)}kcal`,
     ...(i.alcohol && drinkLine ? [`술은 ${drinkLine}까지`] : []),
