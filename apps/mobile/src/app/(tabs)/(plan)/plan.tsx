@@ -54,10 +54,8 @@ export default function PlanScreen() {
   );
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
-      <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '500' }}>계획</Text>
-      <Text style={{ color: t.fg, fontSize: 40, fontWeight: '300', letterSpacing: -1 }}>식단과 운동</Text>
-      <View style={[{ flexDirection: 'row', padding: 4, borderRadius: 999, backgroundColor: t.surface, marginTop: 14 }, squircle]}>
+    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
+      <View style={[{ flexDirection: 'row', padding: 4, borderRadius: 999, backgroundColor: t.surface, marginTop: 4 }, squircle]}>
         {TABS.map(([k, l]) => (
           <Pressable key={k} onPress={() => { void Haptics.selectionAsync(); setTab(k); }} style={{ flex: 1, height: 36, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: tab === k ? t.bg : 'transparent' }}>
             <Text style={{ color: tab === k ? t.fg : t.muted, fontWeight: '600', fontSize: 14 }}>{l}</Text>

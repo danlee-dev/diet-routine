@@ -74,4 +74,25 @@ describe('DataStore', () => {
     expect(v.skipped.size).toBe(0);
     expect(v.sum.total).toBe(1390);
   });
+
+  it('merges the same meal checked on two devices into one row', async () => {
+    const a = await makeEnv();
+    const b = await makeEnv();
+    toggleMeal(a.env, '2026-11-15', 'breakfast');
+    toggleMeal(b.env, '2026-11-15', 'breakfast');
+    const ra = a.env.store.all<{ id: string }>('meal_entries')[0]!;
+    const rb = b.env.store.all<{ id: string }>('meal_entries')[0]!;
+    expect(ra.id).toBe(rb.id);
+    // b receives a's row: still one breakfast, counted once
+    b.env.store.applyRemote('meal_entries', { ...ra, updated_at: '2099-01-01T00:00:00Z' });
+    expect(todayView(b.env).sum.eaten).toBe(295);
+  });
+
+  it('counts a slot once even when old random-id duplicates exist', async () => {
+    const { env } = await makeEnv();
+    const base = { date: '2026-11-15', slot: 'breakfast', kind: 'plan', eaten_at: null, food_id: null, name: '아침', servings: null, amount_text: null, items: null, kcal: 295, protein_g: 21, source: 'plan', photo_path: null, confidence: 1, note: null, deleted_at: null };
+    env.store.applyRemote('meal_entries', { ...base, id: 'dup-1', updated_at: '2026-11-15T01:00:00Z' });
+    env.store.applyRemote('meal_entries', { ...base, id: 'dup-2', updated_at: '2026-11-15T02:00:00Z' });
+    expect(todayView(env).sum.eaten).toBe(295);
+  });
 });

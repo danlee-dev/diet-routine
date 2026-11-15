@@ -31,9 +31,8 @@ export default function LogScreen() {
   tiles.push({ id: 'steps', icon: 'footprints', title: '걸음', sub: `${fmt(v.day.steps)} / ${fmt(v.stepsGoal)}보`, run: () => router.push('/sheet/steps') });
   if (wp) tiles.push({ id: 'wo', icon: 'play', title: `홈트 ${wp.routine} 시작`, sub: wp.done ? '오늘 완료 · 다시 하기' : '따라하기', run: () => router.push({ pathname: '/workout', params: { routine: wp.routine } }) });
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
-      <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '500' }}>{v.ctx.label}</Text>
-      <Text style={{ color: t.fg, fontSize: 40, fontWeight: '300', letterSpacing: -1, marginBottom: 16 }}>기록하기</Text>
+    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
+      <Text style={{ color: t.muted, fontSize: 13, marginBottom: 14 }}>{v.ctx.label}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {tiles.map((x) => (
           <Pressable

@@ -38,10 +38,8 @@ export default function RecordsScreen() {
   );
   const fromStart = stats.last != null ? stats.last - P.startWeight : null;
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
-      <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '500' }}>기록 · {v.ctx.no}일째</Text>
-      <Text style={{ color: t.fg, fontSize: 40, fontWeight: '300', letterSpacing: -1 }}>몸 변화</Text>
-      <Text style={{ color: t.muted, fontSize: 14, marginTop: 4 }}>식단 연속 {st.streak}일 · 홈트 {st.workouts}회 · 남은 기간 {Math.max(0, P.days - v.ctx.no)}일</Text>
+    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
+      <Text style={{ color: t.muted, fontSize: 14 }}>{v.ctx.no}일째 · 식단 연속 {st.streak}일 · 홈트 {st.workouts}회 · 남은 기간 {Math.max(0, P.days - v.ctx.no)}일</Text>
 
       <View style={box}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>

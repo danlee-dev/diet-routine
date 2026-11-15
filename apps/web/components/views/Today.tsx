@@ -9,10 +9,10 @@ import {
   type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
 import { useEnv, useMinuteTick } from '@/lib/hooks';
-import { devicePref, readLegacyLocal } from '@/lib/client';
+import { devicePref, getSupabase, readLegacyLocal } from '@/lib/client';
 import { Icon } from '../Icon';
 import { useOverlay } from '../ui';
-import { RulesSheet, StepsSheet, TimeSheet, WeightSheet } from '../sheets';
+import { RulesSheet, StepsSheet, SyncSheet, TimeSheet, WeightSheet } from '../sheets';
 import { FoodSheet, ScenarioSheet } from '../sheets2';
 
 export interface TodayNav {
@@ -283,6 +283,19 @@ function Ruler({ items, v }: { items: TimelineItem[]; v: TodayView }) {
   );
 }
 
+function SyncBanner() {
+  const env = useEnv();
+  const { open } = useOverlay();
+  if (!getSupabase() || env.store.syncState !== 'local') return null;
+  return (
+    <div className="reco sq" style={{ marginTop: 0, marginBottom: 12 }}>
+      <span className="ic"><Icon name="cloud-off" /></span>
+      <span className="tx"><b>이 기기에만 저장 중이에요</b><span>로그인하면 폰과 웹이 같은 기록을 봐요</span></span>
+      <button type="button" className="go" onClick={() => open(<SyncSheet />)}>로그인</button>
+    </div>
+  );
+}
+
 function LegacyBanner() {
   const env = useEnv();
   const { toast } = useOverlay();
@@ -313,6 +326,7 @@ export function Today({ nav }: { nav: TodayNav }) {
       <Ruler items={items} v={v} />
       <div className="t-grid">
         <div className="t-main">
+          <SyncBanner />
           <LegacyBanner />
           <FocusCard f={f} v={v} nav={nav} />
           <div className="only-phone">

@@ -1,7 +1,7 @@
 // View models and actions on top of the store. Web and iPhone call these same functions,
 // so a check on one device produces exactly the same rows and totals on the other.
 import {
-  addDays, dayCtx, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
+  addDays, dayCtx, mealCheckId, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
   programDate, programKey, rolling7, stepsGoal, summary, weightSeries, weightStats,
   type ChecklistRow, type DayCtx, type DayRow, type EatoutSlot, type MealEntryRow, type MealKey, type PlannedMeal,
   type Program, type RoutineKey, type ScenId, type Summary, type WeightRow, type WorkoutRow,
@@ -27,8 +27,31 @@ export function dayRow(env: Env, date: string): DayRow {
   return r ? { ...base, ...r, scenario: r.scenario ?? base.scenario, eatout_slot: r.eatout_slot ?? 'lunch' } : base;
 }
 
+/**
+ * One logical state per meal slot. Two devices can log the same slot before they sync
+ * (e.g. both mark breakfast eaten); keep only the most recently changed kind per slot:
+ * a single plan check, a single skip, or the replacement items.
+ */
+export function dedupeSlots(entries: MealEntryRow[]): MealEntryRow[] {
+  const bySlot = new Map<string, MealEntryRow[]>();
+  for (const e of entries) {
+    if (e.slot === 'extra') continue;
+    const list = bySlot.get(e.slot) ?? [];
+    list.push(e);
+    bySlot.set(e.slot, list);
+  }
+  const keep = new Set<MealEntryRow>(entries.filter((e) => e.slot === 'extra'));
+  for (const list of bySlot.values()) {
+    const latest = list.reduce((a, b) => ((b.updated_at ?? '') > (a.updated_at ?? '') ? b : a));
+    if (latest.kind === 'replace') for (const e of list) { if (e.kind === 'replace') keep.add(e); }
+    else keep.add(latest);
+  }
+  return entries.filter((e) => keep.has(e));
+}
+
 export const entriesFor = (env: Env, date: string): MealEntryRow[] =>
-  env.store.where<MealEntryRow>('meal_entries', (e) => e.date === date).sort((a, b) => (a.eaten_at ?? '').localeCompare(b.eaten_at ?? ''));
+  dedupeSlots(env.store.where<MealEntryRow>('meal_entries', (e) => e.date === date))
+    .sort((a, b) => (a.eaten_at ?? '').localeCompare(b.eaten_at ?? ''));
 
 export const weightOn = (env: Env, date: string): number | null => env.store.get<WeightRow>('weights', date)?.kg ?? null;
 
@@ -141,7 +164,8 @@ export function toggleMeal(env: Env, date: string, key: MealKey): { added: boole
   const d = dayRow(env, date);
   const m = plan({ scen: d.scenario ?? 'home', eatout: d.eatout_slot ?? 'lunch', wake: d.wake_min }).find((x) => x.key === key);
   if (!m) return { added: false, undo: () => {} };
-  const row = planEntry(m, date, env.newId(), env.now());
+  // same id on every device for this (date, slot): checks from phone and desktop merge into one row
+  const row = planEntry(m, date, mealCheckId(date, key), env.now());
   env.store.put('meal_entries', row);
   return { added: true, undo: () => env.store.remove('meal_entries', row.id) };
 }
@@ -150,7 +174,7 @@ export function toggleMeal(env: Env, date: string, key: MealKey): { added: boole
 export function skipMeal(env: Env, date: string, key: MealKey): Undo {
   const prev = entriesFor(env, date).filter((e) => e.slot === key);
   for (const e of prev) env.store.remove('meal_entries', e.id);
-  const id = env.newId();
+  const id = mealCheckId(date, key);
   env.store.put<MealEntryRow>('meal_entries', {
     id, date, slot: key, kind: 'skip', eaten_at: env.now().toISOString(), food_id: null, name: '건너뜀', servings: null, amount_text: null,
     items: null, kcal: 0, protein_g: 0, carbs_g: null, fat_g: null, sugar_g: null, sodium_mg: null, fiber_g: null,

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { fmt, hhmm, proteinGap, relText, ROUTINES, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
@@ -9,6 +9,7 @@ import {
   type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
 import { useEnv, useMinuteTick } from '@/lib/hooks';
+import { getSupabase } from '@/lib/env';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn, Orb, useToast } from '@/components/ui';
@@ -23,6 +24,21 @@ function useMealActions(v: TodayView) {
   };
 }
 
+function SyncBanner({ t }: { t: Theme }) {
+  const env = useEnv();
+  if (!getSupabase() || env.store.syncState !== 'local') return null;
+  return (
+    <Pressable onPress={() => router.push('/sheet/sync')} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, paddingLeft: 14, borderRadius: R.md, borderWidth: 1, borderColor: t.line }, squircle]}>
+      <Icon name="cloud-off" size={20} color={t.fg} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: t.fg, fontSize: 14.5, fontWeight: '600' }}>이 기기에만 저장 중이에요</Text>
+        <Text style={{ color: t.muted, fontSize: 13 }}>로그인하면 웹과 같은 기록을 봐요</Text>
+      </View>
+      <Text style={{ color: t.fg, fontSize: 13.5, fontWeight: '700' }}>로그인</Text>
+    </Pressable>
+  );
+}
+
 function Header({ v, t }: { v: TodayView; t: Theme }) {
   const env = useEnv();
   const sc = SCEN[v.scen];
@@ -31,14 +47,16 @@ function Header({ v, t }: { v: TodayView; t: Theme }) {
   return (
     <View style={{ gap: 8, marginBottom: 16 }}>
       <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '500' }}>{v.ctx.label} · {v.ctx.week}주차 {v.ctx.no}일째</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-        <Text style={{ color: t.fg, fontSize: 40, fontWeight: '300', letterSpacing: -1 }}>오늘</Text>
-        <Pressable onPress={() => router.push('/sheet/scenario')} style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 12, borderRadius: 999, backgroundColor: t.surface }, squircle]}>
-          <Icon name={sc.icon} size={15} color={t.fg2} />
-          <Text style={{ color: t.fg2, fontSize: 13.5, fontWeight: '600' }}>{sc.name}</Text>
-          <Icon name="chevron-right" size={11} color={t.muted} weight="semibold" />
-        </Pressable>
-      </View>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable accessibilityLabel={`오늘 상황: ${sc.name}. 바꾸기`} onPress={() => router.push('/sheet/scenario')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, height: 34 }}>
+              <Icon name={sc.icon} size={15} color={t.fg} />
+              <Text style={{ color: t.fg, fontSize: 14, fontWeight: '600' }}>{sc.name}</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <Text style={{ color: t.muted, fontSize: 13.5, flexShrink: 1 }}>
           <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{fmt(v.sum.eaten)}</Text> / {fmt(left + v.sum.eaten)} kcal{over > 0 ? ` · 계획대로면 +${fmt(over)}` : ''}
@@ -242,8 +260,9 @@ export default function TodayScreen() {
   const items = timeline(env, v);
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
+    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
       <Header v={v} t={t} />
+      <SyncBanner t={t} />
       <FocusCard f={f} v={v} t={t} />
       <QuickLog v={v} t={t} />
       <Reco v={v} t={t} />
