@@ -5,3 +5,4 @@ export * from './plan';
 export * from './coach';
 export * from './profile';
 export * from './run';
+export * from './insights';

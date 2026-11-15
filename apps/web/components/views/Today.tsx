@@ -11,6 +11,7 @@ import {
 } from '@diet/data';
 import { useAuth, useEnv, useMinuteTick } from '@/lib/hooks';
 import { devicePref, getSupabase, readLegacyLocal } from '@/lib/client';
+import { SuggestionCards } from '../Suggestions';
 import { Icon } from '../Icon';
 import { PageHead, useOverlay } from '../ui';
 import { RulesSheet, StepsSheet, TimeSheet, WeightSheet } from '../sheets';
@@ -415,6 +416,7 @@ export function Today({ nav }: { nav: TodayNav }) {
           <LegacyBanner />
           <FocusCard f={f} v={v} nav={nav} />
           <RebalanceCard v={v} />
+          <SuggestionCards />
           <div className="only-phone">
             <QuickLog v={v} />
             <Reco v={v} nav={nav} />
