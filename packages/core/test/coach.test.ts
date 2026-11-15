@@ -173,3 +173,35 @@ describe('cards to rows', () => {
     expect(out.card).toBeUndefined();
   });
 });
+
+describe('client stream', () => {
+  it('parses split SSE frames and skips pings', async () => {
+    const { createSSEParser } = await import('../src/coach');
+    const feed = createSSEParser();
+    expect(feed(': ping\n\nid: 1\nevent: text\ndata: {"type":"te')).toEqual([]);
+    expect(feed('xt","delta":"안녕"}\n\nid: 2\nevent: done\ndata: {"type":"done","stopReason":"end_turn"}\n\n')).toEqual([
+      { type: 'text', delta: '안녕' }, { type: 'done', stopReason: 'end_turn' },
+    ]);
+  });
+
+  it('folds events into ordered parts and updates steps in place', async () => {
+    const { newAssistantTurn, reduceTurn, historyFor, setCardState } = await import('../src/coach');
+    let t = newAssistantTurn('a', 0);
+    t = reduceTurn(t, { type: 'status', id: 'ctx', label: '오늘 기록 확인 중', state: 'running', kind: 'context' });
+    t = reduceTurn(t, { type: 'status', id: 'ctx', label: '오늘 기록 확인함', state: 'done', kind: 'context' });
+    t = reduceTurn(t, { type: 'status', id: 'tu1', label: '칼로리 계산 중', state: 'running', kind: 'tool' });
+    t = reduceTurn(t, { type: 'text', delta: '점심을 ' });
+    t = reduceTurn(t, { type: 'text', delta: '기록합니다.' });
+    const s = new CoachSession(snap(), 'x');
+    const card = s.run('skip_meal', { slot: 'snack' }).card!;
+    t = reduceTurn(t, { type: 'card', card });
+    t = reduceTurn(t, { type: 'status', id: 'tu1', label: '계산함', state: 'done', kind: 'tool' });
+    t = reduceTurn(t, { type: 'done', stopReason: 'end_turn' }, 9000);
+    expect(t.parts.map((p) => p.kind)).toEqual(['steps', 'text', 'card']);
+    expect(t.parts[0]).toEqual({ kind: 'steps', steps: [{ id: 'ctx', label: '오늘 기록 확인함', state: 'done', kind: 'context' }, { id: 'tu1', label: '계산함', state: 'done', kind: 'tool' }] });
+    expect(t.status).toBe('done');
+    t = setCardState(t, card.id, 'applied');
+    const h = historyFor([{ role: 'user', id: 'u', text: '간식 건너뛸래', images: [] }, t]);
+    expect(h[1]!.text).toBe('점심을 기록합니다.\n\n[변경 카드: 간식 건너뛰기 · 사용자가 적용함]');
+  });
+});

@@ -5,3 +5,4 @@ export * from './types';
 export * from './context';
 export * from './execute';
 export * from './tools';
+export * from './client';

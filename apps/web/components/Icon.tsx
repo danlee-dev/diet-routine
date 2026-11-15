@@ -1,7 +1,7 @@
 import {
   Activity, AlarmClock, Apple, ArrowLeftRight, ArrowUpRight, Backpack, Ban, Bed, Building2, CalendarCheck, Car, Check,
   ChevronRight, ClipboardPaste, Clock, Cloud, CloudOff, Delete, Drumstick, Dumbbell, Footprints, GlassWater, HeartPulse,
-  House, LogIn, Moon, MoonStar, PanelLeftClose, PanelLeftOpen, Play, Plus, RotateCcw, Search, ShoppingBasket, Signpost, SkipForward,
+  House, LogIn, MessageCircle, Moon, MoonStar, PanelLeftClose, PanelLeftOpen, Play, Plus, RotateCcw, Search, ShoppingBasket, Signpost, SkipForward,
   Store, Sun, Sunrise, Timer, Tv, Utensils, UtensilsCrossed, Volume2, VolumeX, Weight, Wine, X, type LucideIcon,
 } from 'lucide-react';
 
@@ -11,7 +11,7 @@ const MAP: Record<string, LucideIcon> = {
   backpack: Backpack, ban: Ban, bed: Bed, 'building-2': Building2, 'calendar-check': CalendarCheck, car: Car, check: Check,
   'chevron-right': ChevronRight, 'clipboard-paste': ClipboardPaste, clock: Clock, cloud: Cloud, 'cloud-off': CloudOff, delete: Delete,
   drumstick: Drumstick, dumbbell: Dumbbell, footprints: Footprints, 'glass-water': GlassWater, 'heart-pulse': HeartPulse,
-  house: House, 'log-in': LogIn, moon: Moon, 'moon-star': MoonStar, 'panel-left-close': PanelLeftClose, 'panel-left-open': PanelLeftOpen,
+  house: House, 'log-in': LogIn, 'message-circle': MessageCircle, moon: Moon, 'moon-star': MoonStar, 'panel-left-close': PanelLeftClose, 'panel-left-open': PanelLeftOpen,
   play: Play, plus: Plus, 'rotate-ccw': RotateCcw, search: Search, 'shopping-basket': ShoppingBasket, signpost: Signpost, 'skip-forward': SkipForward,
   store: Store, sun: Sun, sunrise: Sunrise, timer: Timer, tv: Tv, utensils: Utensils, 'utensils-crossed': UtensilsCrossed,
   'volume-2': Volume2, 'volume-x': VolumeX, weight: Weight, wine: Wine, x: X,

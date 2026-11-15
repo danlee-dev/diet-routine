@@ -13,6 +13,7 @@ import { Records } from './views/Records';
 import { Plan, PLAN_TABS, type PlanTab } from './views/Plan';
 import { WorkoutPlayer } from './WorkoutPlayer';
 import { CommandPalette, type Command } from './CommandPalette';
+import { CoachButton, CoachPanel } from './coach/CoachPanel';
 
 type View = 'today' | 'records' | 'plan';
 const VIEWS: [View, string, string][] = [['today', '오늘', 'calendar-check'], ['records', '기록', 'activity'], ['plan', '계획', 'signpost']];
@@ -59,6 +60,7 @@ function Shell() {
   const [view, setView] = useState<View>(() => { const h = location.hash.slice(1); return isView(h) ? h : 'today'; });
   const [planTab, setPlanTabState] = useState<PlanTab>(() => devicePref.get<PlanTab>('planTab', 'situations'));
   const [cmdk, setCmdk] = useState(false);
+  const [coach, setCoach] = useState(false);
   const [player, setPlayer] = useState<{ routine: RoutineKey | null; id: number }>({ routine: null, id: 0 });
   const v = todayView(env);
 
@@ -84,6 +86,7 @@ function Shell() {
 
   const commands: Command[] = (() => {
     const c: Command[] = [];
+    c.push({ id: 'coach', label: '코치에게 묻기', icon: 'message-circle', group: '코치', keywords: 'AI 질문 채팅 상담 식단 바꾸기', run: () => setCoach(true) });
     const next = v.next;
     if (next) {
       c.push({ id: 'eat', label: `${next.name} 먹었어요`, icon: 'check', group: '기록', keywords: '먹음 식사', run: () => { const r = toggleMeal(env, v.ctx.key, next.key); if (r.added) toast(`${next.name} 먹음 표시`, r.undo); } });
@@ -113,6 +116,7 @@ function Shell() {
           {VIEWS.map(([k, label, icon]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => go(k)}><Icon name={icon} />{label}</button>)}
         </div>
         <div className="tb-right">
+          <CoachButton onClick={() => setCoach(true)} />
           <button type="button" className="kbtn" onClick={() => setCmdk(true)}><Icon name="search" />검색·실행<kbd>⌘K</kbd></button>
           <button type="button" className="sync-chip" onClick={() => open(<SyncSheet />)} aria-label="동기화 상태"><Icon name={synced ? 'cloud' : 'cloud-off'} />{synced ? '동기화됨' : '이 기기만'}</button>
           <button type="button" className="btn-primary pill" onClick={() => open(<ActionSheet onStartWorkout={startWorkout} />)}><Icon name="plus" />기록하기</button>
@@ -133,6 +137,7 @@ function Shell() {
       </nav>
       <CommandPalette open={cmdk} onClose={() => setCmdk(false)} commands={commands} IconC={Icon} />
       <WorkoutPlayer key={player.id} routine={player.routine} onClose={closePlayer} />
+      <CoachPanel open={coach} onOpen={() => setCoach(true)} onClose={() => setCoach(false)} />
     </div>
   );
 }
