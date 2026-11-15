@@ -75,8 +75,8 @@
       [
         "@kingstinct/react-native-healthkit",
         {
-          "NSHealthShareUsageDescription": "걸음 수, 체중, 수면을 읽어 오늘 기록을 채우고 기상 시간을 제안합니다.",
-          "NSHealthUpdateUsageDescription": "앱에서 기록한 체중과 홈트를 건강 앱에 저장합니다.",
+          "NSHealthShareUsageDescription": "걸음 수, 체중, 수면, 활동 에너지, 다른 앱의 운동을 읽어 오늘 기록을 채우고 기상 시간을 제안합니다.",
+          "NSHealthUpdateUsageDescription": "앱에서 기록한 체중, 홈트, 달리기와 걷기(거리, 활동 에너지, 경로)를 건강 앱에 저장합니다.",
           "background": true
         }
       ],
