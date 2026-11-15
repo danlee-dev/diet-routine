@@ -187,3 +187,12 @@ supabase/        migrations (raw SQL, RLS)
 - Supabase 새 프로젝트 (MCP 인증 또는 대시보드에서 생성)
 - Apple Developer 팀 (번들 ID 기본값 `dev.danlee.dietroutine`)
 - (3단계, 선택) 인스타 스토리 직접 공유용 Meta 앱 ID. 없으면 공유 시트로 보낸다
+
+
+---
+
+## 진행 상황
+
+| 날짜 | 내용 |
+|---|---|
+| 2026-11-15 | 0단계: core·data 패키지, Supabase 스키마 적용(14개 테이블, RLS), 웹 Next.js 이식과 3영역 구조 개편, 새 웹 배포(예전 기록 자동 옮기기), 아이폰 앱 뼈대 |

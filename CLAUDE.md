@@ -15,6 +15,24 @@
 - `packages/core` 순수 TS: 식단 데이터, 끼니 시간, 칼로리 재분배, 체중 추세, 러닝 계산, 알림 계획
 - `supabase/migrations` raw SQL
 
+## 명령어
+
+```bash
+pnpm install                     # 루트에서. .npmrc 의 node-linker=hoisted 는 Expo 때문에 필요
+pnpm test                        # core 테스트 (data 는 pnpm --filter @diet/data test)
+pnpm -r typecheck
+pnpm web                         # 웹 개발 서버
+pnpm check:schema                # 동기화 행 모양이 실제 Supabase 테이블과 맞는지 (사용자 생성 없이)
+
+# 웹 배포 (diet-routine.vercel.app). 루트의 .vercel/project.json 에 rootDirectory=apps/web
+vercel build --prod --yes && vercel deploy --prebuilt --prod --yes
+
+# 아이폰 시뮬레이터
+cd apps/mobile && npx expo prebuild -p ios && (cd ios && pod install) && npx expo run:ios
+```
+
+마이그레이션 적용 방법과 기록은 `supabase/README.md`.
+
 ## 규칙
 
 - 칼로리·시간·거리 계산은 `packages/core` 에서만. 앱과 웹에서 따로 계산하지 않는다
