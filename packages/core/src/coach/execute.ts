@@ -153,7 +153,7 @@ export class CoachSession {
     if (input.slot === 'extra') {
       this.snap.extras.push({ name: input.name, kcal, protein });
       this.shift(kcal, protein, true);
-      lines.push({ label: SLOT_NAME.extra!, after: `${input.name} ${input.amount} · ${kcalText(kcal)} · 단백질 ${protein}g` });
+      lines.push({ label: SLOT_NAME.extra!, after: `${input.name} · ${input.amount} · ${kcalText(kcal)} · 단백질 ${protein}g` });
     } else {
       const m = this.meal(input.slot);
       if (!m) return this.err(`오늘 식단에 ${SLOT_NAME[input.slot]} 끼니가 없습니다. extra 로 기록하세요.`);
@@ -162,7 +162,7 @@ export class CoachSession {
       lines.push({
         label: m.name,
         before: m.state === 'replaced' && m.logged ? `${m.logged.map((x) => x.name).join(', ')} · ${kcalText(prev.kcal)}` : m.state === 'skipped' ? '건너뜀' : `계획 ${kcalText(m.kcal)} · 단백질 ${m.protein}g`,
-        after: `${input.name} ${input.amount} · ${kcalText(kcal)} · 단백질 ${protein}g`,
+        after: `${input.name} · ${input.amount} · ${kcalText(kcal)} · 단백질 ${protein}g`,
       });
       const t = this.snap.totals;
       t.projectedKcal = Math.max(0, t.projectedKcal - prev.kcal + kcal);
