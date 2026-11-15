@@ -34,6 +34,16 @@ export function focusNow(env: Env, v: TodayView): Focus {
   return { kind: 'meal', meal: next };
 }
 
+/** What was eaten, in words: planned items for a plan check, items plus what was left for a partial meal. */
+function loggedText(logged: MealEntryRow[]): string {
+  return logged.map((e) => {
+    const items = Array.isArray(e.items) ? (e.items as { name: string }[]).map((x) => x.name).join(' · ') : '';
+    if (e.kind === 'plan') return items || e.name;
+    if (e.kind === 'replace' && e.note?.startsWith('안 먹음')) return `${items}${items ? ' · ' : ''}${e.note}`;
+    return e.name;
+  }).join(', ');
+}
+
 export type TimelineState = 'done' | 'next' | 'late' | 'upcoming' | 'skipped';
 
 export interface TimelineItem {
@@ -62,7 +72,7 @@ export function timeline(env: Env, v: TodayView): TimelineItem[] {
     const late = !eaten && m.at != null && v.nowMin > m.at + 90;
     items.push({
       id: m.key, kind: 'meal', at: m.at ?? null, title: m.name,
-      sub: skipped ? SKIP_ADVICE[m.key] : eaten ? logged.map((e) => e.name).join(', ') : m.items.map((x) => x.name).join(' · '),
+      sub: skipped ? SKIP_ADVICE[m.key] : eaten ? loggedText(logged) : m.items.map((x) => x.name).join(' · '),
       icon: m.icon, state: skipped ? 'skipped' : eaten ? 'done' : m.key === nextKey ? (late ? 'late' : 'next') : late ? 'late' : 'upcoming', meal: m, entries: logged,
     });
   }

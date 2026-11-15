@@ -30,7 +30,7 @@ export function getSupabase(): SupabaseClient | null {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   supa = url && key
-    ? createClient(url, key, { auth: { storage: Storage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } })
+    ? createClient(url, key, { auth: { storage: Storage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: 'pkce' } })
     : null;
   return supa;
 }
