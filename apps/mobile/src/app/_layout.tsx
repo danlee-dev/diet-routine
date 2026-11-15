@@ -55,6 +55,7 @@ export default function RootLayout() {
             <Stack.Screen name="sheet/food" options={sheet([0.75, 1])} />
             <Stack.Screen name="sheet/sync" options={sheet()} />
             <Stack.Screen name="workout" options={{ presentation: 'fullScreenModal', headerShown: false }} />
+            <Stack.Screen name="coach" options={{ presentation: 'modal', headerShown: false }} />
           </Stack>
         </ToastProvider>
       </EnvContext.Provider>
