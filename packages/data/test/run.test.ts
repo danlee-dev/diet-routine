@@ -116,6 +116,25 @@ describe('runs', () => {
     saveRun(env, { id: 'r', kind: 'run', startedAt: start, endedAt: start, summary: trackRun(start.getTime(), 600, 3) });
     expect(runCredit(env, '2026-11-15')).toBe(0);
   });
+
+  it('gives back half of a workout read from Apple Health, but nothing for a home workout', async () => {
+    const env = await makeEnv();
+    const base = (id: string, source: 'app' | 'health', type: WorkoutRow['type'], kcal: number) => ({
+      id, date: '2026-11-15', type, started_at: null, ended_at: null, duration_s: 1800, rounds: null, kcal, source, run_id: null, note: null,
+    });
+    env.store.put<WorkoutRow>('workouts', base('w1', 'health', 'other', 301));
+    env.store.put<WorkoutRow>('workouts', base('w2', 'app', 'home_a', 200));
+    expect(runCredit(env, '2026-11-15')).toBe(151);
+    expect(runCredit(env, '2026-11-14')).toBe(0);
+  });
+
+  it('keeps the pedometer cadence on the run and when the run is saved again', async () => {
+    const env = await makeEnv();
+    const start = new Date(2026, 10, 15, 19, 0);
+    const input = { id: 'c', kind: 'run' as const, startedAt: start, endedAt: new Date(start.getTime() + 600_000), summary: trackRun(start.getTime(), 600, 3) };
+    expect(saveRun(env, { ...input, avgCadence: 168 }).avg_cadence).toBe(168);
+    expect(saveRun(env, input).avg_cadence).toBe(168);
+  });
 });
 
 describe('runs: segments and sync order', () => {

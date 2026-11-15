@@ -42,6 +42,8 @@ export interface SaveRunInput {
   startedAt: Date;
   endedAt: Date;
   summary: RunSummary;
+  /** steps per minute from the phone's pedometer, when it has one */
+  avgCadence?: number | null;
 }
 
 /**
@@ -71,7 +73,7 @@ export function saveRun(env: Env, input: SaveRunInput): RunRow {
     avg_pace_s_per_km: s.avg_pace_s_per_km,
     kcal: runKcal(s.splits, weightFor(env, date)),
     elev_gain_m: s.elev_gain_m,
-    avg_cadence: null,
+    avg_cadence: input.avgCadence ?? prev?.avg_cadence ?? null,
     splits: s.splits,
     polyline: segments.length ? segments.map((g) => encodePolyline(g)).join(' ') : null,
     bbox: routeBBox(segments),
