@@ -8,6 +8,7 @@ import { eul } from '@/lib/ko';
 import { Icon } from '../Icon';
 import { useOverlay } from '../ui';
 import { MealEditSheet } from '../PlanSheets';
+import { ShareMealsSheet } from '../ShareMeals';
 
 export function Meals() {
   const env = useEnv();
@@ -32,6 +33,7 @@ export function Meals() {
           {diff > 0 ? ` · 목표보다 ${fmt(diff)}kcal 많습니다` : diff < -50 ? ` · 목표보다 ${fmt(-diff)}kcal 적습니다` : ''}
         </p>
         {meta && <p className="edit-meta">{md(parseKey(meta.from))} {who}{meta.note ? ` · ${meta.note}` : ''}</p>}
+        <button type="button" className="btn-ghost pill share-btn" onClick={() => open(<ShareMealsSheet />)}><Icon name="share" />식단표 공유</button>
       </section>
 
       <ul className="meal-table">

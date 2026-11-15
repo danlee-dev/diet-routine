@@ -1,5 +1,5 @@
 import {
-  Activity, AlarmClock, Apple, ArrowLeftRight, ArrowUpRight, Backpack, Ban, Bed, Building2, CalendarCheck, Car, Check,
+  Activity, AlarmClock, Apple, ArrowLeftRight, ArrowUpRight, Download, Share, Backpack, Ban, Bed, Building2, CalendarCheck, Car, Check,
   ChevronDown, ChevronRight, ClipboardPaste, Clock, Cloud, CloudOff, Delete, Drumstick, Dumbbell, Footprints, GlassWater, HeartPulse,
   House, LogIn, LogOut, Mail, Moon, MoonStar, PanelLeftClose, PanelLeftOpen, Play, Plus, RotateCcw, Search, Settings, ShoppingBasket,
   Signpost, SkipForward, Store, Sun, Sunrise, Timer, Tv, UserRound, Utensils, UtensilsCrossed, Volume2, VolumeX, Weight, Wine, X,
@@ -16,7 +16,7 @@ const MAP: Record<string, LucideIcon> = {
   'panel-left-close': PanelLeftClose, 'panel-left-open': PanelLeftOpen, play: Play, plus: Plus, 'rotate-ccw': RotateCcw,
   search: Search, settings: Settings, 'shopping-basket': ShoppingBasket, signpost: Signpost, 'skip-forward': SkipForward,
   store: Store, sun: Sun, sunrise: Sunrise, timer: Timer, tv: Tv, 'user-round': UserRound, utensils: Utensils,
-  'utensils-crossed': UtensilsCrossed, 'volume-2': Volume2, 'volume-x': VolumeX, weight: Weight, wine: Wine, x: X,
+  'utensils-crossed': UtensilsCrossed, share: Share, download: Download, 'volume-2': Volume2, 'volume-x': VolumeX, weight: Weight, wine: Wine, x: X,
 };
 
 /** One icon set, one stroke. Sizes: sm 16, md 20 (default), lg 24. */
