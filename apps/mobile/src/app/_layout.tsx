@@ -5,6 +5,8 @@ import { AppState, useColorScheme } from 'react-native';
 import type { Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
 import { EnvContext } from '@/lib/hooks';
+import { useReminders } from '@/lib/notifications';
+import { useHealthSync } from '@/lib/health';
 import { ToastProvider } from '@/components/ui';
 
 void SplashScreen.preventAutoHideAsync();
@@ -22,6 +24,8 @@ const sheet = (detents: number[] | 'fitToContents' = 'fitToContents', opts: { wh
 export default function RootLayout() {
   const scheme = useColorScheme();
   const [env, setEnv] = useState<Env | null>(null);
+  useReminders(env); // schedule today's reminders and handle notification buttons (cold start included)
+  useHealthSync(env); // Apple Health steps/weight/sleep in, weight/workouts out, once connected in settings
 
   useEffect(() => {
     void getEnv().then((e) => { setEnv(e); void SplashScreen.hideAsync(); });
