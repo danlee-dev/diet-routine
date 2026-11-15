@@ -2,15 +2,14 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { fmt, keypadReduce, partialMeal, PORTIONS, PRESETS, type FoodPreset, type KeypadState, type MealKey, type Slot } from '@diet/core';
-import { eatPartial, logFood, remainingKcal, skipMeal, todayView } from '@diet/data';
+import { fmt, keypadReduce, partialMeal, PORTIONS, type FoodPreset, type KeypadState, type MealKey, type Slot } from '@diet/core';
+import { eatPartial, foodPresets, logFood, PRESET_GROUPS, remainingKcal, skipMeal, todayView } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { R, squircle, useTheme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn, Keypad, useToast } from '@/components/ui';
 import { SheetBody, SheetHead } from '@/components/sheet';
 
-const GROUPS: [FoodPreset['group'], string][] = [['delivery', '배달·외식'], ['meal', '식사'], ['drink', '마실 것'], ['snack', '간식']];
 
 export default function FoodSheet() {
   const env = useEnv();
@@ -18,6 +17,8 @@ export default function FoodSheet() {
   const { toast } = useToast();
   const params = useLocalSearchParams<{ slot?: string }>();
   const v = todayView(env);
+  // the user's own list (edited on the web), or the built-in one
+  const presets = foodPresets(env);
   const [slot, setSlot] = useState<Slot>((params.slot as Slot) ?? v.next?.key ?? 'extra');
   const [preset, setPreset] = useState<FoodPreset | null>(null);
   const [portion, setPortion] = useState<(typeof PORTIONS)[number]['id']>('normal');
@@ -80,10 +81,10 @@ export default function FoodSheet() {
       {!preset && !manual && (
         <>
           {meal && <Text style={{ color: t.fg, fontSize: 16, fontWeight: '600', marginTop: 22 }}>대신 먹은 것</Text>}
-          {GROUPS.map(([g, label]) => (
+          {PRESET_GROUPS.filter(([g]) => presets.some((p) => p.group === g)).map(([g, label]) => (
             <View key={g}>
               <Text style={{ color: t.muted, fontSize: 12, fontWeight: '700', marginTop: 16, marginBottom: 2 }}>{label}</Text>
-              {PRESETS.filter((p) => p.group === g).map((p, i) => (
+              {presets.filter((p) => p.group === g).map((p, i) => (
                 <Pressable key={p.id} onPress={() => { void Haptics.selectionAsync(); setPreset(p); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderTopWidth: i ? 1 : 0, borderColor: t.line, opacity: pressed ? 0.6 : 1 })}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: t.fg, fontSize: 15, fontWeight: '700' }}>{p.name}</Text>

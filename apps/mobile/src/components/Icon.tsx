@@ -12,6 +12,7 @@ const MAP: Record<string, SFSymbol> = {
   x: 'xmark', delete: 'delete.left', timer: 'timer', 'volume-2': 'speaker.wave.2', 'volume-x': 'speaker.slash', cloud: 'icloud', 'cloud-off': 'icloud.slash', user: 'person.crop.circle', 'chevron-down': 'chevron.down', 'log-out': 'rectangle.portrait.and.arrow.right', mail: 'envelope', 'refresh-cw': 'arrow.clockwise',
   'arrow-left-right': 'arrow.left.arrow.right', 'clipboard-paste': 'doc.on.clipboard', search: 'magnifyingglass', 'building-2': 'building.2', tv: 'tv',
   'figure-run': 'figure.run', pause: 'pause.fill', stop: 'stop.fill', share: 'square.and.arrow.up', list: 'list.bullet', map: 'map',
+  package: 'shippingbox', 'cloud-rain': 'cloud.rain', 'cloud-snow': 'cloud.snow', location: 'location',
 };
 
 export function Icon({ name, size = 20, color, weight = 'medium' }: { name: string; size?: number; color: ColorValue; weight?: 'regular' | 'medium' | 'semibold' | 'bold' }) {
