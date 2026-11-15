@@ -199,6 +199,7 @@ export class DataStore {
     this.userId = userId;
     this.setSync('syncing');
     try {
+      await this.preferAccountProfile(client, userId);
       await this.push();
       await this.pull();
       this.channel = client
@@ -213,6 +214,27 @@ export class DataStore {
     } catch (e) {
       this.setSync('error', e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * Signing in to an account that already has a profile: the account's profile wins over one made on this device
+   * before sign-in (which would otherwise be newer and overwrite it on push). A profile from onboarding also takes
+   * its unsynced plan rows with it, since that plan was built for a fresh start; the device's records
+   * (meals, weights, workouts) still upload.
+   */
+  private async preferAccountProfile(client: SupabaseClient, userId: string): Promise<void> {
+    const local = this.s.tables.profiles?.me;
+    if (!local || !this.s.outbox.some((o) => o.t === 'profiles')) return;
+    const { data, error } = await client.from('profiles').select('*').eq('user_id', userId).maybeSingle();
+    if (error) throw new Error(`profiles: ${error.message}`);
+    if (!data || (data as Row).deleted_at) return;
+    const fromOnboarding = local.onboarding != null;
+    const dropPlans = fromOnboarding ? new Set(this.s.outbox.filter((o) => o.t === 'plans').map((o) => o.pk)) : new Set<string>();
+    for (const pk of dropPlans) delete this.s.tables.plans[pk];
+    this.s.outbox = this.s.outbox.filter((o) => o.t !== 'profiles' && !(o.t === 'plans' && dropPlans.has(o.pk)));
+    this.s.tables.profiles.me = data as Row;
+    this.emit();
+    this.scheduleSave();
   }
 
   detach(): void {
