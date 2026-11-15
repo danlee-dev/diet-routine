@@ -1,26 +1,31 @@
 'use client';
 import { useState } from 'react';
-import { DOW, fmt, hhmm, repMultiplier, ROUTINES, schedule, TARGETS, WEEK, workoutRounds, type RoutineKey } from '@diet/core';
+import { DOW, fmt, hhmm, repMultiplier, schedule, TARGETS, WEEK_LABEL, workoutRounds, type RoutineDef, type RoutineKey } from '@diet/core';
 import { todayView, workoutOn } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { devicePref } from '@/lib/client';
 import { Icon } from '../Icon';
+import { useOverlay } from '../ui';
+import { RoutineEditSheet, WeekDaySheet } from '../PlanSheets';
 
-function RoutineList({ k, mult }: { k: RoutineKey; mult: number }) {
+function RoutineList({ r, mult }: { r: RoutineDef; mult: number }) {
   return (
     <ul className="kv-list">
-      {ROUTINES[k].items.map((x) => <li key={x.name}><span>{x.name}</span><span className="num">{Math.round(x.n * mult)}{x.unit}</span></li>)}
+      {r.items.map((x, i) => <li key={`${x.name}-${i}`}><span>{x.name}</span><span className="num">{Math.round(x.n * mult)}{x.unit}</span></li>)}
     </ul>
   );
 }
 
 export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
   const env = useEnv();
+  const { open } = useOverlay();
   const v = todayView(env);
   const { dow, week } = v.ctx;
-  const t = WEEK[dow]!.t;
+  // today's session after weekly edits and one-day changes; routines after edits
+  const t = v.session;
+  const R = v.routines;
   const done = workoutOn(env, v.ctx.key);
-  const doneName = done ? (done.type === 'home_a' ? ROUTINES.A.name : done.type === 'home_b' ? ROUTINES.B.name : '운동') : null;
+  const doneName = done ? (done.type === 'home_a' ? R.A.name : done.type === 'home_b' ? R.B.name : '운동') : null;
   const sch = schedule(v.day.wake_min);
   const mult = repMultiplier(week);
   const rounds = workoutRounds(week);
@@ -35,10 +40,10 @@ export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
     card = (
       <section className="card sq" aria-label="오늘 운동">
         <p className="card-k">오늘 · {DOW[dow]}요일</p>
-        <h2 className="card-t">{ROUTINES[t].name}</h2>
-        <p className="card-sub">{ROUTINES[t].focus} · {rounds}라운드 · 라운드 사이 60초 쉬기</p>
+        <h2 className="card-t">{R[t].name}</h2>
+        <p className="card-sub">{R[t].focus} · {rounds}라운드 · 라운드 사이 60초 쉬기</p>
         {when}
-        <RoutineList k={t} mult={mult} />
+        <RoutineList r={R[t]} mult={mult} />
         <div className="card-acts">
           <button type="button" className="btn-primary pill" onClick={() => onStart(t)}><Icon name="play" size="sm" />{done ? '다시 하기' : '따라하기 시작'}</button>
           {doneTag}
@@ -48,7 +53,7 @@ export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
   } else if (t === 'light') {
     card = (
       <section className="card sq" aria-label="오늘 운동">
-        <p className="card-k">오늘 · 토요일</p>
+        <p className="card-k">오늘 · {DOW[dow]}요일</p>
         <h2 className="card-t">A 또는 B 가볍게</h2>
         <p className="card-sub">둘 중 하나를 3라운드만 합니다. 피곤하면 걷기로 바꿔도 됩니다.</p>
         {when}
@@ -78,13 +83,18 @@ export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
       <div className="col">
         {card}
         <section>
-          <h2 className="section-title">이번 주</h2>
+          <h2 className="section-title">이번 주<span className="muted">요일을 누르면 바꿉니다</span></h2>
           <ol className="week" aria-label="요일별 운동">
-            {[1, 2, 3, 4, 5, 6, 0].map((d) => (
-              <li key={d} className={d === dow ? 'is-today' : undefined} aria-current={d === dow ? 'date' : undefined}>
-                <span>{DOW[d]}</span><b>{WEEK[d]!.label}</b>
-              </li>
-            ))}
+            {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+              const label = d === dow ? WEEK_LABEL[v.session] : v.week[d]!.label;
+              return (
+                <li key={d} className={d === dow ? 'is-today' : undefined}>
+                  <button type="button" aria-current={d === dow ? 'date' : undefined} aria-label={`${DOW[d]}요일 ${label}. 바꾸기`} onClick={() => open(<WeekDaySheet dow={d} />)}>
+                    <span>{DOW[d]}</span><b>{label}</b>
+                  </button>
+                </li>
+              );
+            })}
           </ol>
         </section>
         <section>
@@ -93,8 +103,11 @@ export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
             <button type="button" aria-pressed={rt === 'A'} onClick={() => pick('A')}>A · 상체</button>
             <button type="button" aria-pressed={rt === 'B'} onClick={() => pick('B')}>B · 하체</button>
           </div>
-          <RoutineList k={rt} mult={mult} />
-          <button type="button" className="btn-ghost pill" style={{ marginTop: 12 }} onClick={() => onStart(rt)}><Icon name="play" size="sm" />{ROUTINES[rt].name} 따라하기</button>
+          <RoutineList r={R[rt]} mult={mult} />
+          <div className="row" style={{ marginTop: 12 }}>
+            <button type="button" className="btn-ghost pill" onClick={() => onStart(rt)}><Icon name="play" size="sm" />{R[rt].name} 따라하기</button>
+            <button type="button" className="link-btn quiet" onClick={() => open(<RoutineEditSheet k={rt} />)}>구성 바꾸기</button>
+          </div>
           <p className="note" style={{ marginTop: 12 }}>1주차 3라운드, 2주차부터 4라운드, 3주차부터 횟수를 20% 늘립니다.</p>
         </section>
       </div>

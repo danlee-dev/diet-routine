@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { repMultiplier, ROUTINES, WEEK, workoutRounds, type RoutineKey } from '@diet/core';
+import { repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
 import { completeWorkout, todayView, toggleMeal } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { devicePref } from '@/lib/client';
@@ -33,7 +33,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
   const [left, setLeft] = useState(0);
   const [total, setTotal] = useState(0);
   const [sound, setSound] = useState(() => devicePref.get('sound', true));
-  const [rounds] = useState(() => (WEEK[v.ctx.dow]!.t === 'light' ? 3 : workoutRounds(v.ctx.week)));
+  const [rounds] = useState(() => (v.session === 'light' ? 3 : workoutRounds(v.ctx.week)));
   const endRef = useRef(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const lock = useRef<WakeLockSentinel | null>(null);
@@ -42,7 +42,8 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
   const onDoneRef = useRef<() => void>(() => {});
 
   const mult = repMultiplier(v.ctx.week);
-  const items = ROUTINES[key].items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
+  const rdef = v.routines[key];
+  const items = rdef.items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
   const cur = items[idx]!;
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
@@ -147,7 +148,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
       </div>
     );
   } else {
-    body = <><p className="eyebrow">오늘 홈트 끝</p><p className="wo-name">잘했습니다</p><p className="wo-next">{ROUTINES[key].name} {rounds}라운드를 마쳤습니다.{postDone ? '' : ' 이제 프로틴 + 우유를 마실 차례입니다.'}</p></>;
+    body = <><p className="eyebrow">오늘 홈트 끝</p><p className="wo-name">잘했습니다</p><p className="wo-next">{rdef.name} {rounds}라운드를 마쳤습니다.{postDone ? '' : ' 이제 프로틴 + 우유를 마실 차례입니다.'}</p></>;
     foot = postDone ? <button type="button" className="btn-primary pill" onClick={onClose}>닫기</button> : (
       <>
         <button type="button" className="btn-primary pill" onClick={() => { const r = toggleMeal(env, v.ctx.key, 'post'); onClose(); if (r.added) toast('운동 후 먹음 표시', r.undo); }}><Icon name="check" />프로틴 먹음 표시하고 닫기</button>
@@ -161,7 +162,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
       {(
         <>
           <div className="wo-head">
-            <span className="t">{ROUTINES[key].name} · {phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</span>
+            <span className="t">{rdef.name} · {phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</span>
             <div className="acts">
               <button type="button" className="icon-btn" aria-label={sound ? '소리 끄기' : '소리 켜기'} onClick={() => { const s = !sound; setSound(s); devicePref.set('sound', s); }}><Icon name={sound ? 'volume-2' : 'volume-x'} /></button>
               <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="x" /></button>

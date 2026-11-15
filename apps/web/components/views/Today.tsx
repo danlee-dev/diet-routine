@@ -1,11 +1,12 @@
 'use client';
 import { useState } from 'react';
 import {
-  durText, fmt, hhmm, minutesToCutoff, proteinGap, relText, ROUTINES, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds,
+  durText, fmt, hhmm, MEALS, minutesToCutoff, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds,
   type MealKey, type RoutineKey,
 } from '@diet/core';
 import {
-  focusNow, importLegacyData, projectedOver, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
+  applyRebalance, focusNow, importLegacyData, projectedOver, rebalanceToday, rebalanceWorthShowing, recommendation, remainingKcal, setWake, setWater,
+  skipMeal, timeline, todayView, toggleMeal,
   type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
 import { useAuth, useEnv, useMinuteTick } from '@/lib/hooks';
@@ -15,6 +16,7 @@ import { PageHead, useOverlay } from '../ui';
 import { RulesSheet, StepsSheet, TimeSheet, WeightSheet } from '../sheets';
 import { FoodSheet, ScenarioSheet } from '../sheets2';
 import { AccountButton, SettingsSheet } from '../Settings';
+import { MealEditSheet } from '../PlanSheets';
 
 export interface TodayNav {
   startWorkout: (r: RoutineKey) => void;
@@ -32,6 +34,7 @@ function useMealActions(v: TodayView) {
       if (r.added) toast(`${m?.name ?? ''} 먹음 표시`, r.undo);
     },
     other: (k: MealKey) => open(<FoodSheet slot={k} />),
+    partial: (k: MealKey) => open(<FoodSheet slot={k} mode="partial" />),
     skip: (k: MealKey) => {
       const undo = skipMeal(env, v.ctx.key, k);
       const m = v.meals.find((x) => x.key === k);
@@ -87,7 +90,7 @@ function FocusCard({ f, v, nav }: { f: Focus; v: TodayView; nav: TodayNav }) {
     );
   }
   if (f.kind === 'workout') {
-    const r = ROUTINES[f.routine];
+    const r = v.routines[f.routine];
     return (
       <section className="card focus sq swap-in" aria-label="지금 할 일">
         <p className="card-k">홈트 시간 · {hhmm(f.at)}쯤</p>
@@ -246,9 +249,13 @@ function TimelineRow({ it, v, nav, openId, setOpenId }: { it: TimelineItem; v: T
             {it.state === 'done' || it.state === 'skipped'
               ? <button type="button" className="btn-ghost pill" onClick={() => { toggleMeal(env, v.ctx.key, m.key); setOpenId(null); }}><Icon name="rotate-ccw" size="sm" />기록 취소</button>
               : <>
+                  <button type="button" className="btn-ghost pill" onClick={() => act.partial(m.key)}>일부만 먹었어요</button>
                   <button type="button" className="btn-ghost pill" onClick={() => act.other(m.key)}>다르게 먹었어요</button>
-                  <button type="button" className="btn-ghost pill" onClick={() => { act.skip(m.key); setOpenId(null); }}>건너뛰기</button>
                 </>}
+          </div>
+          <div className="quiet-acts">
+            {it.state !== 'done' && it.state !== 'skipped' && <button type="button" className="link-btn quiet" onClick={() => { act.skip(m.key); setOpenId(null); }}>건너뛰기</button>}
+            <button type="button" className="link-btn quiet" onClick={() => open(<MealEditSheet mealKey={m.key} />)}>식단 바꾸기</button>
           </div>
         </div>
       )}
@@ -293,6 +300,48 @@ function Ruler({ items, v }: { items: TimelineItem[]; v: TodayView }) {
       ))}
       {nowIn && <div className="nowline" style={{ left: pos(v.nowMin) }} />}
     </div>
+  );
+}
+
+/**
+ * Shown under the focus card when the rest of the day, eaten as planned, would run over (or short on protein).
+ * One tap writes the proposal as day adjustments; the timeline and the meal table then show the trimmed meals.
+ */
+function RebalanceCard({ v }: { v: TodayView }) {
+  const env = useEnv();
+  const { toast } = useOverlay();
+  const p = rebalanceToday(env, v);
+  // dismissal is remembered per day and per 100 kcal step, so a bigger overshoot asks again
+  const dkey = `rb:${v.ctx.key}:${Math.floor(p.over / 100)}:${p.proteinAdds.length}`;
+  const [dismissedNow, setDismissedNow] = useState<string | null>(null);
+  // Carry-over lands on later days, so today's proposal still counts that excess after applying. Remember what
+  // was already carried today and only ask again for a new overshoot on top of it.
+  const carriedKey = `rb-carried:${v.ctx.key}`;
+  const carried = devicePref.get<number>(carriedKey, 0);
+  const fresh = p.proteinAdds.length > 0 || p.over - carried > 100;
+  if (!rebalanceWorthShowing(p) || !fresh || dismissedNow === dkey || devicePref.get<boolean>(dkey, false)) return null;
+  const mealName = (k: MealKey) => (v.meals.find((m) => m.key === k)?.name ?? MEALS[k].name).replace(/ \(.+\)$/, '');
+  const lines: [string, string][] = [
+    ...p.cuts.map((c): [string, string] => [`${mealName(c.slot)} · ${c.label}`, `−${fmt(c.kcal)}kcal`]),
+    ...p.proteinAdds.map((a): [string, string] => [`${mealName(a.slot)} · ${a.label} 더하기`, `+${fmt(a.kcal)}kcal`]),
+    ...p.carry.map((c): [string, string] => [c.offset === 1 ? '내일' : `${c.offset}일 뒤`, `−${fmt(c.kcal)}kcal`]),
+  ];
+  if (p.stepsBonus > 0) lines.push(['내일 걸음', `+${fmt(p.stepsBonus)}`]);
+  const over = p.over > 100;
+  return (
+    <section className="rb-card sq" aria-label="남은 계획 맞추기">
+      <h3 className="rb-t">{over ? `이대로면 오늘 ${fmt(p.over)}kcal 넘칩니다` : `단백질이 ${Math.max(0, env.program.proteinFloor - p.before.protein)}g 모자랍니다`}</h3>
+      <p className="note">{over ? '남은 끼니에서 먼저 줄이고, 그래도 남으면 며칠에 나눠 덜 먹습니다. 단백질은 줄이지 않습니다.' : '남은 끼니에 단백질을 조금 더합니다.'}</p>
+      <ul className="kv-list compact rb-lines">{lines.map(([a, b]) => <li key={a + b}><span>{a}</span><span>{b}</span></li>)}</ul>
+      <div className="card-acts">
+        <button type="button" className="btn-primary pill" onClick={() => {
+          const undo = applyRebalance(env, p);
+          devicePref.set(carriedKey, carried + p.carry.reduce((sum, c) => sum + c.kcal, 0));
+          toast('남은 계획을 맞췄습니다', () => { undo(); devicePref.set(carriedKey, carried); });
+        }}><Icon name="check" size="sm" />이렇게 맞추기</button>
+        <button type="button" className="link-btn quiet" onClick={() => { devicePref.set(dkey, true); setDismissedNow(dkey); }}>그대로 두기</button>
+      </div>
+    </section>
   );
 }
 
@@ -356,6 +405,7 @@ export function Today({ nav }: { nav: TodayNav }) {
           <SyncBanner />
           <LegacyBanner />
           <FocusCard f={f} v={v} nav={nav} />
+          <RebalanceCard v={v} />
           <div className="only-phone">
             <QuickLog v={v} />
             <Reco v={v} nav={nav} />

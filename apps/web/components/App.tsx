@@ -49,8 +49,8 @@ function Shell() {
   const { open, close, toast, setPlayerOpen } = useOverlay();
   const [view, setView] = useState<View>(() => { const h = location.hash.slice(1); return isView(h) ? h : 'today'; });
   const [planTab, setPlanTabState] = useState<PlanTab>(() => {
-    const t = devicePref.get<string>('planTab', 'situations');
-    return PLAN_TABS.some(([k]) => k === t) ? (t as PlanTab) : 'situations';
+    const t = devicePref.get<string>('planTab', 'meals');
+    return PLAN_TABS.some(([k]) => k === t) ? (t as PlanTab) : 'meals';
   });
   const [cmdk, setCmdk] = useState(false);
   const [player, setPlayer] = useState<{ routine: RoutineKey | null; id: number }>({ routine: null, id: 0 });

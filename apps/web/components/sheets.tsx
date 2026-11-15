@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import {
-  fmt, hhmm, keypadReduce, MEALS, ORDER, pad, programDate, programKey, ROUTINES, SCEN, schedule, sgn, mdw, minutesOf, timeLabel,
+  fmt, hhmm, keypadReduce, MEALS, ORDER, pad, programDate, programKey, SCEN, schedule, sgn, mdw, minutesOf,
   type KeypadState, type ScenId,
 } from '@diet/core';
 import {
@@ -142,43 +142,6 @@ export function StepsSheet() {
   );
 }
 
-// ---------------- meal detail (phone) ----------------
-export function MealSheet({ mealKey }: { mealKey: keyof typeof MEALS }) {
-  const env = useEnv();
-  const { close, toast } = useOverlay();
-  const v = todayView(env);
-  const m = v.meals.find((x) => x.key === mealKey);
-  if (!m) return null;
-  const done = v.eaten.has(mealKey);
-  return (
-    <div>
-      <SheetHead eyebrow={timeLabel(m)} title={m.name} />
-      <ul className="kv-list" style={{ marginTop: 14 }}>{m.items.map((x) => <li key={x.name}><span>{x.name}</span><span>{x.amount}</span></li>)}</ul>
-      <dl className="trio two">
-        <div><dt>칼로리</dt><dd>{m.est ? '약 ' : ''}{fmt(m.kcal)}<small>kcal</small></dd></div>
-        <div><dt>단백질</dt><dd>{m.protein}<small>g</small></dd></div>
-      </dl>
-      {(m.hint || m.swaps.length > 0) && (
-        <>
-          <h3 className="section-title">알아둘 것</h3>
-          <ul className="rule-list plain">{m.hint && <li>{m.hint}</li>}{m.swaps.map((s) => <li key={s}>{s}</li>)}</ul>
-        </>
-      )}
-      <button
-        type="button"
-        className="btn-primary pill wide-btn"
-        onClick={() => {
-          const r = toggleMeal(env, v.ctx.key, mealKey);
-          close();
-          if (r.added) toast(`${m.name} 먹음 표시`, r.undo);
-        }}
-      >
-        <Icon name={done ? 'rotate-ccw' : 'check'} size="sm" />{done ? '먹음 표시 취소' : '먹었습니다'}
-      </button>
-    </div>
-  );
-}
-
 export function RulesSheet({ id }: { id: ScenId }) {
   const s = SCEN[id];
   return (
@@ -195,7 +158,8 @@ export function DaySheet({ i }: { i: number }) {
   const env = useEnv();
   const { open } = useOverlay();
   const rec = dayRecord(env, i);
-  const isToday = rec.key === todayView(env).ctx.key;
+  const tv = todayView(env);
+  const isToday = rec.key === tv.ctx.key;
   return (
     <div>
       <SheetHead eyebrow={isToday ? '오늘' : `${i + 1}일째`} title={mdw(rec.date)} />
@@ -218,7 +182,7 @@ export function DaySheet({ i }: { i: number }) {
         <Icon name="chevron-right" size="sm" />
       </button>
       <p className="note" style={{ marginTop: 14 }}>
-        물 {rec.water}/8잔 · 걸음 {fmt(rec.steps)}보{rec.workout ? ` · ${rec.workout.type === 'home_a' ? ROUTINES.A.name : rec.workout.type === 'home_b' ? ROUTINES.B.name : '운동'} 완료` : ''}
+        물 {rec.water}/8잔 · 걸음 {fmt(rec.steps)}보{rec.workout ? ` · ${rec.workout.type === 'home_a' ? tv.routines.A.name : rec.workout.type === 'home_b' ? tv.routines.B.name : '운동'} 완료` : ''}
       </p>
     </div>
   );

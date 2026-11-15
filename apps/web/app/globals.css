@@ -310,12 +310,87 @@ ol.rule-list li::before{counter-increment:r;content:counter(r);position:absolute
 
 /* workout */
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;text-align:center}
-.week li{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0}
+.week li{display:flex;justify-content:center}
+.week li button{display:flex;flex-direction:column;align-items:center;gap:2px;width:100%;padding:6px 0;border-radius:var(--r-xs);transition:background .2s}
+@media (hover:hover){ .week li button:hover{background:var(--surface)} }
 .week span{font-size:12px;color:var(--muted)}
 .week b{font-size:13.5px;font-weight:500;color:var(--fg-2)}
 .week li.is-today span{color:var(--fg);font-weight:600}
 .week li.is-today b{color:var(--fg);font-weight:700;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:6px}
 .col .seg + .kv-list{margin-top:10px}
+
+/* plan: the day's meals */
+.day-total{display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums}
+.day-total b{font-family:var(--font-display);font-size:40px;font-weight:300;letter-spacing:-.03em;line-height:1.1}
+.day-total span{font-size:15px;color:var(--muted)}
+.edit-meta{margin-top:6px;font-size:13px;color:var(--fg-2)}
+.meal-table{display:flex;flex-direction:column;margin-top:14px;max-width:760px}
+.mt-row{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:start;column-gap:12px;width:100%;padding:14px 4px;text-align:left;border-radius:var(--r-sm);transition:background .2s}
+@media (hover:hover){ .mt-row:hover{background:var(--surface)} }
+.mt-time{padding-top:3px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.mt-main{display:flex;flex-direction:column;min-width:0}
+.mt-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.mt-h b{font-size:16px;font-weight:600}
+.mt-h .kc{font-family:var(--font-display);font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mt-h .kc small{font-size:12px;color:var(--muted);margin-left:2px}
+.mt-items{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.mt-item{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.mt-item .nm{color:var(--fg-2);min-width:0}
+.mt-item .am{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.mt-meta{margin-top:6px;font-size:12.5px;color:var(--muted)}
+.mt-chev{margin-top:4px;color:var(--muted)}
+
+/* plan edit sheets */
+.field-row svg.flip{transform:rotate(180deg)}
+.item-edit{display:flex;flex-direction:column;gap:16px}
+.ie-top{display:flex;gap:8px;align-items:center}
+.ie-top .input{flex:1 1 auto}
+.ie-nums{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:8px;margin-top:8px}
+.ie-nums.two{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:0}
+.item-edit .input,.ie-nums .input{height:42px;width:100%;font-size:15px}
+.unit-in{position:relative;display:block}
+.unit-in .input{padding-right:42px;text-align:right;font-variant-numeric:tabular-nums}
+.unit-in span{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12.5px;color:var(--muted);pointer-events:none}
+.plan-edit > .link-btn{margin-top:10px}
+.quiet-acts{display:flex;justify-content:space-between;gap:12px;margin-top:10px}
+.quiet-acts:empty{display:none}
+.link-btn.quiet{color:var(--fg-2);font-weight:500}
+.tl-detail .quiet-acts{justify-content:flex-start;gap:18px;margin-top:4px}
+.routine-edit{display:flex;flex-direction:column;margin-top:14px}
+.routine-edit li{display:flex;align-items:center;gap:10px;padding:6px 0}
+.routine-edit .nm{flex:1;min-width:0;font-size:15.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon-btn.ghost{background:transparent;color:var(--muted);width:32px;height:32px}
+@media (hover:hover){ .icon-btn.ghost:hover{background:var(--surface)} }
+.stepper{display:flex;align-items:center;gap:4px}
+.stepper button{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--surface);font-size:18px;font-weight:500;transition:background .15s,transform .2s var(--spring)}
+.stepper button:active{transform:scale(.92);background:var(--surface-2)}
+.stepper b{min-width:64px;text-align:center;font-family:var(--font-display);font-size:15.5px;font-weight:500;font-variant-numeric:tabular-nums}
+.stepper b small{font-family:var(--font-body);font-size:12px;color:var(--muted);margin-left:1px}
+.unit-seg{flex:none;padding:3px}
+.unit-seg button{height:34px;width:40px}
+.mode-seg{margin-top:16px}
+
+/* partial meal checklist */
+.part-list{display:flex;flex-direction:column;margin-top:10px}
+.part-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:14px;width:100%;padding:10px 4px;text-align:left;border-radius:var(--r-sm)}
+@media (hover:hover){ .part-row:hover{background:var(--surface)} }
+.part-row .cb{width:24px;height:24px}
+.part-row[aria-pressed="true"] .cb{background:var(--fg);border-color:var(--fg);color:var(--on-fg)}
+.part-row .nm b{display:block;font-size:15px;font-weight:600}
+.part-row .nm span{display:block;font-size:13px;color:var(--muted)}
+.part-row[aria-pressed="false"] .nm b{color:var(--muted);text-decoration:line-through;text-decoration-thickness:1.5px}
+.part-row .kc{font-family:var(--font-display);font-size:14px;color:var(--fg-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.part-row .kc small{font-size:11.5px;color:var(--muted);margin-left:1px}
+
+/* rebalance proposal: an outline, no fill */
+.rb-card{margin-top:14px;padding:18px 20px;border-radius:var(--r-lg);border:1.5px solid var(--fg)}
+.rb-t{font-size:16.5px;font-weight:600;line-height:1.4}
+.rb-card > .note{margin-top:4px}
+.rb-lines{margin-top:12px}
+.rb-lines li > span:first-child{color:var(--fg-2)}
+.rb-lines li > span:last-child{color:var(--fg);font-weight:600}
+.rb-card .card-acts{margin-top:14px}
+.rb-card .card-acts .btn-primary{height:42px}
 
 /* shop */
 .shop-cols{display:grid;gap:24px;margin-top:12px}
@@ -537,6 +612,7 @@ kbd{font-family:var(--font-body);font-size:11.5px;padding:2px 6px;border-radius:
   .t-aside .note-row .link-btn{margin-left:34px}
 
   .card{padding:28px 30px 26px}
+  .rb-card{padding:20px 24px}
   .card-t{font-size:44px}
   .shop-cols{grid-template-columns:repeat(2,minmax(0,1fr));gap:32px}
   .shop-col.is-off{display:block}
