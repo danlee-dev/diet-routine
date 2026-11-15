@@ -14,10 +14,17 @@
       "supportsTablet": true,
       "infoPlist": {
         "CFBundleDisplayName": "다루",
-        "NSMotionUsageDescription": "걸음과 활동을 정확하게 세려고 동작 정보를 사용합니다."
+        "NSMotionUsageDescription": "걸음, 달리기 케이던스, 오른 높이를 정확하게 재려고 동작 정보를 사용합니다.",
+        "NSSupportsLiveActivities": true,
+        "CFBundleDevelopmentRegion": "ko"
       },
       "config": {
         "usesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.dev.danlee.dietroutine"
+        ]
       }
     },
     "android": {
@@ -80,7 +87,8 @@
           "cameraPermission": "음식, 메뉴판, 성분표를 찍어 코치에게 보내려고 카메라를 씁니다.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "@bacons/apple-targets"
     ],
     "experiments": {
       "typedRoutes": true,

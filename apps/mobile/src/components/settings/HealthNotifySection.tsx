@@ -11,8 +11,8 @@ import {
   devRunButtons, notifyPermission, plannedReminders, previewReminders, reminderPrefs, requestNotifyPermission, type NotifyPermission,
 } from '@/lib/notifications';
 import {
-  connectHealth, disconnectHealth, healthAccess, healthAvailable, healthPrefs, healthWriteAllowed, lastNightWake, latestHealthWeight,
-  pullHealth, seedHealthSamples, useHealthPrefs, useWakeSuggestion, type HealthAccess, type HealthPrefs, type HealthWeight,
+  connectHealth, disconnectHealth, healthAccess, healthAvailable, healthExtrasAccess, healthPrefs, healthWriteAllowed, lastNightWake, latestHealthWeight,
+  pullHealth, requestHealthExtras, seedHealthSamples, useActiveEnergy, useHealthPrefs, useWakeSuggestion, type HealthAccess, type HealthPrefs, type HealthWeight,
 } from '@/lib/health';
 import { Btn, PickerFrame, useToast, Wheel, type WheelItem } from '@/components/ui';
 
@@ -41,7 +41,7 @@ function useOnActive(fn: () => void): void {
 }
 
 // ---------------- primitives ----------------
-function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   const t = useTheme();
   const dark = useColorScheme() === 'dark';
   const [x] = useState(() => new Animated.Value(on ? 1 : 0));
@@ -251,7 +251,8 @@ const HEALTH_ROWS: { key: keyof Omit<HealthPrefs, 'connected' | 'connectedOn'>; 
   { key: 'weightIn', title: '체중계 기록 가져오기' },
   { key: 'sleep', title: '수면으로 기상 시간 제안' },
   { key: 'weightOut', title: '체중을 건강 앱에 저장' },
-  { key: 'workoutOut', title: '홈트를 건강 앱에 저장' },
+  { key: 'workoutOut', title: '운동을 건강 앱에 저장' },
+  { key: 'activityIn', title: '활동 에너지와 다른 앱 운동' },
 ];
 
 function HealthBlock() {
@@ -264,6 +265,8 @@ function HealthBlock() {
   const [weight, setWeight] = useState<HealthWeight | null>(null);
   const [wake, setWake] = useState<number | null>(null);
   const [write, setWrite] = useState({ weight: true, workout: true });
+  const [extras, setExtras] = useState<HealthAccess | null>(null);
+  const active = useActiveEnergy(env);
   const available = healthAvailable();
 
   const refresh = useCallback(async () => {
@@ -271,6 +274,7 @@ function HealthBlock() {
     const a = await healthAccess().catch(() => 'notAsked' as const);
     setAccess(a);
     if (a !== 'asked' || !healthPrefs.get().connected) return;
+    setExtras(await healthExtrasAccess().catch(() => 'notAsked' as const));
     setWrite(healthWriteAllowed());
     setWeight(await latestHealthWeight().catch(() => null));
     setWake(await lastNightWake(env).catch(() => null));
@@ -296,7 +300,10 @@ function HealthBlock() {
       case 'weightOut':
         if (!write.weight) return '건강 앱에서 체중 쓰기가 꺼져 있습니다';
         return weight?.own && keyOf(weight.at) === v.ctx.key ? `오늘 ${weight.kg.toFixed(1)}kg을 건강 앱에 저장했습니다` : '앱에서 기록하거나 고친 체중을 하루 하나로 저장합니다';
-      case 'workoutOut': return write.workout ? '홈트를 마치면 근력 운동으로 저장합니다' : '건강 앱에서 운동 쓰기가 꺼져 있습니다';
+      case 'workoutOut': return write.workout ? '홈트는 근력 운동으로, 달리기와 걷기는 지나간 경로와 함께 저장합니다' : '건강 앱에서 운동 쓰기가 꺼져 있습니다';
+      case 'activityIn':
+        if (extras !== 'asked') return '아래에서 건강 앱 권한을 허용하면 켜집니다';
+        return active ? `오늘 활동 ${fmt(active)}kcal · 애플워치 운동은 달리기처럼 절반을 오늘 목표에 더합니다` : '애플워치와 다른 앱의 운동을 오늘 기록에 넣습니다';
     }
   };
 
@@ -310,7 +317,7 @@ function HealthBlock() {
           <View style={{ gap: 6 }}>
             <Text style={{ color: t.fg, fontSize: 19, fontWeight: '700', letterSpacing: -0.3 }}>건강 앱과 연결</Text>
             <Text style={{ color: t.fg2, fontSize: 14, lineHeight: 20 }}>
-              걸음 수를 직접 넣지 않아도 되고, 체중계 기록과 수면 기록으로 아침 입력이 줄어듭니다. 앱에서 기록한 체중과 홈트는 건강 앱에 저장합니다.
+              걸음 수를 직접 넣지 않아도 되고, 체중계 기록과 수면 기록으로 아침 입력이 줄어듭니다. 앱에서 기록한 체중, 홈트, 달리기는 건강 앱에 저장합니다.
             </Text>
           </View>
           <Btn label="건강 앱 연결" onPress={() => void connect()} />
@@ -329,6 +336,13 @@ function HealthBlock() {
                 <Btn small label={`${hhmm(suggestion.wake)}로 맞추기`} onPress={() => { suggestion.accept(); toast(`기상 ${hhmm(suggestion.wake!)} · 끼니 시간을 맞췄습니다`); }} />
                 <Btn small kind="ghost" label="아니요" onPress={suggestion.dismiss} />
               </View>
+            </View>
+          )}
+          {extras === 'notAsked' && (
+            <View style={[{ borderRadius: R.md, backgroundColor: t.bg, padding: 14, gap: 10 }, squircle]}>
+              <Text style={{ color: t.fg, fontSize: 15, fontWeight: '600' }}>새로 맞출 수 있는 항목이 있습니다</Text>
+              <Text style={{ color: t.muted, fontSize: 13, lineHeight: 18 }}>활동 에너지, 애플워치 운동, 달리기 경로입니다. 허용하면 달리기가 피트니스 앱과 활동 링에도 들어갑니다.</Text>
+              <Btn small label="건강 앱 권한 허용" style={{ alignSelf: 'flex-start' }} onPress={() => { void requestHealthExtras().then(refresh).then(() => pullHealth(env)); }} />
             </View>
           )}
           {(!write.weight || !write.workout) && (

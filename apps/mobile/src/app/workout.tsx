@@ -12,6 +12,7 @@ import { useTheme } from '@/lib/theme';
 import { Btn, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import { AmrapPlayer } from '@/components/AmrapPlayer';
+import { restActivity } from '@/lib/native/activities';
 
 type Phase = 'work' | 'hold' | 'rest' | 'done';
 const C = 2 * Math.PI * 104;
@@ -48,9 +49,10 @@ function RoundsPlayer() {
   const mult = repMultiplier(v.ctx.week);
   const items = v.routines[key].items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
   const cur = items[idx]!;
+  const firstMove = `${items[0]!.name} ${items[0]!.n}${items[0]!.unit}`;
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
-  useEffect(() => stop, []);
+  useEffect(() => () => { stop(); restActivity.end(); }, []);
   const buzz = () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   const run = useCallback((secs: number, done: () => void) => {
     if (timer.current) clearInterval(timer.current);
@@ -65,7 +67,11 @@ function RoundsPlayer() {
   const next = () => {
     stop();
     if (idx < items.length - 1) { setIdx(idx + 1); setPhase('work'); }
-    else if (round < rounds) { setPhase('rest'); run(60, () => { setRound((r) => r + 1); setIdx(0); setPhase('work'); buzz(); }); }
+    else if (round < rounds) {
+      setPhase('rest');
+      run(60, () => { restActivity.end(); setRound((r) => r + 1); setIdx(0); setPhase('work'); buzz(); });
+      restActivity.show(end.current, firstMove); // the rest countdown on the lock screen and Dynamic Island
+    }
     else { setPhase('done'); completeWorkout(env, v.ctx.key, key, { rounds, startedAt: started.current ?? new Date(), endedAt: new Date() }); buzz(); }
   };
   const ring = (
@@ -114,8 +120,8 @@ function RoundsPlayer() {
           : <Btn icon="check" label={`${cur.n}${cur.unit.replace(' (양쪽)', '')} 했어요`} style={{ height: 56 }} onPress={next} />)}
         {phase === 'hold' && <Btn icon="check" label="끝났어요" style={{ height: 56 }} onPress={next} />}
         {phase === 'rest' && <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'center' }}>
-          <Btn kind="ghost" label="+15초" onPress={() => { end.current += 15000; setLeft((l) => l + 15); setTotal((x) => x + 15); }} />
-          <Btn icon="skip-forward" label="바로 시작" onPress={() => { stop(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }} />
+          <Btn kind="ghost" label="+15초" onPress={() => { end.current += 15000; setLeft((l) => l + 15); setTotal((x) => x + 15); restActivity.show(end.current, firstMove); }} />
+          <Btn icon="skip-forward" label="바로 시작" onPress={() => { stop(); restActivity.end(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }} />
         </View>}
         {phase === 'done' && (postDone
           ? <Btn label="닫기" style={{ height: 56 }} onPress={() => router.back()} />

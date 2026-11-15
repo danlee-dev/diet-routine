@@ -13,6 +13,7 @@ import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Row, Section } from '@/components/list';
 import { HealthNotifySection } from '@/components/settings/HealthNotifySection';
+import { ShortcutsSection } from '@/components/settings/ShortcutsSection';
 import { useToast } from '@/components/ui';
 
 function GoogleMark({ size = 18 }: { size?: number }) {
@@ -154,6 +155,8 @@ export default function SettingsScreen() {
       <Account t={t} />
 
       <HealthNotifySection />
+
+      <ShortcutsSection />
 
       <Section title="내 프로그램" footer="숫자는 코치와 대화해서 바꿀 수 있습니다.">
         <Row title="시작일" value={mdw(parseKey(P.startDate))} />
