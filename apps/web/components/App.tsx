@@ -13,6 +13,7 @@ import { Records } from './views/Records';
 import { Plan, PLAN_TABS, type PlanTab } from './views/Plan';
 import { WorkoutPlayer } from './WorkoutPlayer';
 import { CommandPalette, type Command } from './CommandPalette';
+import { CoachButton, CoachPanel } from './coach/CoachPanel';
 import { AccountButton, SettingsSheet } from './Settings';
 import { Welcome } from './onboarding/Welcome';
 import { Onboarding } from './onboarding/Onboarding';
@@ -104,6 +105,7 @@ function Shell() {
     return PLAN_TABS.some(([k]) => k === t) ? (t as PlanTab) : 'meals';
   });
   const [cmdk, setCmdk] = useState(false);
+  const [coach, setCoach] = useState(false);
   const [player, setPlayer] = useState<{ routine: RoutineKey | null; id: number }>({ routine: null, id: 0 });
   const v = todayView(env);
 
@@ -136,6 +138,7 @@ function Shell() {
 
   const commands: Command[] = (() => {
     const c: Command[] = [];
+    c.push({ id: 'coach', label: '코치에게 묻기', icon: 'message-circle', group: '코치', keywords: 'AI 질문 채팅 상담 식단 바꾸기', run: () => setCoach(true) });
     const next = v.next;
     if (next) {
       c.push({ id: 'eat', label: `${next.name} 먹었어요`, icon: 'check', group: '기록', keywords: '먹음 식사', run: () => { const r = toggleMeal(env, v.ctx.key, next.key); if (r.added) toast(`${next.name} 먹음 표시`, r.undo); } });
@@ -164,6 +167,7 @@ function Shell() {
           {VIEWS.map(([k, label, icon]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => go(k)}><Icon name={icon} size="sm" />{label}</button>)}
         </div>
         <div className="tb-right">
+          <CoachButton onClick={() => setCoach(true)} />
           <button type="button" className="kbtn" aria-label="검색과 실행 (⌘K)" onClick={() => setCmdk(true)}><Icon name="search" size="sm" /><span className="kl">검색·실행</span><kbd>⌘K</kbd></button>
           <button type="button" className="btn-primary pill" onClick={() => open(<ActionSheet onStartWorkout={startWorkout} />)}><Icon name="plus" size="sm" />기록하기</button>
           <AccountButton />
@@ -184,6 +188,7 @@ function Shell() {
       </nav>
       <CommandPalette open={cmdk} onClose={() => setCmdk(false)} commands={commands} />
       <WorkoutPlayer key={player.id} routine={player.routine} onClose={closePlayer} />
+      <CoachPanel open={coach} onOpen={() => setCoach(true)} onClose={() => setCoach(false)} />
     </div>
   );
 }

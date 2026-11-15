@@ -73,6 +73,7 @@ export default function RootLayout() {
             />
             <Stack.Screen name="auth/callback" options={{ animation: 'none' }} />
             <Stack.Screen name="workout" options={{ presentation: 'fullScreenModal', headerShown: false }} />
+            <Stack.Screen name="coach" options={{ presentation: 'modal', headerShown: false }} />
           </Stack>
         </ToastProvider>
       </EnvContext.Provider>
