@@ -168,3 +168,29 @@ describe('coach cards: review scenarios', () => {
     expect(todayView(env).target).toBe(1390 - carried); // carried part raised today's target
   });
 });
+
+
+describe('coach shop cards', () => {
+  it('applies shop edits onto the list as it is and undoes only them', async () => {
+    const env = await makeEnv();
+    const first = coachSnapshot(env).shop.now[0]!;
+    const card = cardFor(env, 'propose_shop_change', { changes: [
+      { action: 'replace', id: first.id, name: '냉동 닭가슴살 1kg', qty: '2봉 · 14일치', price: 19800, query: '냉동 닭가슴살 1kg' },
+      { action: 'add', list: 'week', name: '양배추 1통', qty: '1통', price: 3500, query: '양배추' },
+    ], title: '닭가슴살을 더 싼 걸로', reason: '예산' });
+    const r = applyCard(env, card);
+    expect(r.ok).toBe(true);
+    const shop = todayView(env).shop;
+    expect(shop.now[0]!.name).toBe('냉동 닭가슴살 1kg');
+    expect(shop.now[0]!.url).toBe('https://www.coupang.com/np/search?q=' + encodeURIComponent('냉동 닭가슴살 1kg'));
+    expect(shop.week.map((x) => x.name)).toContain('양배추 1통');
+    // another edit after this card stays when the card is undone
+    const other = cardFor(env, 'propose_shop_change', { changes: [{ action: 'remove', id: shop.week[0]!.id }], title: '빼기', reason: 'x' });
+    applyCard(env, other);
+    if (r.ok) r.undo();
+    const after = todayView(env).shop;
+    expect(after.now[0]!.id).toBe(first.id);
+    expect(after.week.map((x) => x.name)).not.toContain('양배추 1통');
+    expect(after.week.map((x) => x.id)).not.toContain(shop.week[0]!.id); // the other card's removal kept
+  });
+});

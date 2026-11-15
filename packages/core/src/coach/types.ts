@@ -1,7 +1,7 @@
 // Types for the AI coach. Data shapes come from the zod schemas so validation and types never drift.
 import type { z } from 'zod';
 import type {
-  AdjustWorkoutInputZ, CardRowZ, CardZ, ChatRequestZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ,
+  AdjustWorkoutInputZ, CardRowZ, CardZ, ChatRequestZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, ProposeShopChangeInputZ,
   RebalanceTodayInputZ, SkipMealInputZ, SnapMealZ, SnapshotZ,
 } from './schema';
 
@@ -17,6 +17,7 @@ export type ProposeDayAdjustmentInput = z.infer<typeof ProposeDayAdjustmentInput
 export type RebalanceTodayInput = z.infer<typeof RebalanceTodayInputZ>;
 export type SkipMealInput = z.infer<typeof SkipMealInputZ>;
 export type AdjustWorkoutInput = z.infer<typeof AdjustWorkoutInputZ>;
+export type ProposeShopChangeInput = z.infer<typeof ProposeShopChangeInputZ>;
 
 /**
  * Server-sent events of POST /api/ai/chat (`event: <type>` + `data: <json>`).
@@ -37,4 +38,4 @@ export type CoachEvent =
 
 export type CoachErrorCode = 'auth' | 'forbidden' | 'rate_limit' | 'bad_request' | 'upstream' | 'refusal' | 'too_long';
 
-export type CoachToolName = 'log_food' | 'propose_plan_change' | 'propose_day_adjustment' | 'rebalance_today' | 'skip_meal' | 'adjust_workout';
+export type CoachToolName = 'log_food' | 'propose_plan_change' | 'propose_day_adjustment' | 'rebalance_today' | 'skip_meal' | 'adjust_workout' | 'propose_shop_change';

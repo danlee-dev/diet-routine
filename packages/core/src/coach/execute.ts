@@ -8,11 +8,11 @@ import type { MealKey, RoutineDef, WeekType } from '../data';
 import { proposalToAdjustments, rebalance, WEEK_LABEL, type AdjustedMeal, type MealOverride } from '../rebalance';
 import { addDays, fmt, keyOf, parseKey } from '../util';
 import {
-  AdjustWorkoutInputZ, CardZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, RebalanceTodayInputZ, SkipMealInputZ,
+  AdjustWorkoutInputZ, CardZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, ProposeShopChangeInputZ, RebalanceTodayInputZ, SkipMealInputZ,
 } from './schema';
 import type {
   AdjustWorkoutInput, CardRow, CoachCard, CoachSnapshot, CoachToolName, LogFoodInput, ProposeDayAdjustmentInput, ProposePlanChangeInput,
-  RebalanceTodayInput, SkipMealInput, SnapMeal,
+  ProposeShopChangeInput, RebalanceTodayInput, SkipMealInput, SnapMeal,
 } from './types';
 
 export const TOOL_INPUTS: Record<CoachToolName, z.ZodType> = {
@@ -22,6 +22,7 @@ export const TOOL_INPUTS: Record<CoachToolName, z.ZodType> = {
   rebalance_today: RebalanceTodayInputZ,
   skip_meal: SkipMealInputZ,
   adjust_workout: AdjustWorkoutInputZ,
+  propose_shop_change: ProposeShopChangeInputZ,
 };
 
 export const isCoachTool = (name: string): name is CoachToolName => Object.hasOwn(TOOL_INPUTS, name);
@@ -74,6 +75,7 @@ export function toolStatusLabel(name: string, input?: Record<string, unknown>): 
     case 'rebalance_today': return '남은 끼니 다시 맞추는 중';
     case 'skip_meal': return slot ? `${slot} 건너뛰기 정리 중` : '건너뛴 끼니 정리 중';
     case 'adjust_workout': return input?.scope === 'routine' ? '홈트 구성 바꿀 안 만드는 중' : input?.scope === 'week' ? '주간 운동 계획 바꿀 안 만드는 중' : input?.scope === 'today' ? '오늘 운동 조정안 만드는 중' : '운동 계획 살펴보는 중';
+    case 'propose_shop_change': return '장보기 목록 바꿀 안 만드는 중';
     case 'web_search': return typeof input?.query === 'string' ? `웹 검색 중: ${input.query}` : '웹 검색 중';
     default: return '처리 중';
   }
@@ -112,6 +114,7 @@ export class CoachSession {
       case 'propose_day_adjustment': return this.dayAdjustment(input as ProposeDayAdjustmentInput);
       case 'propose_plan_change': return this.planChange(input as ProposePlanChangeInput);
       case 'adjust_workout': return this.adjustWorkout(input as AdjustWorkoutInput);
+      case 'propose_shop_change': return this.shopChange(input as ProposeShopChangeInput);
     }
   }
 
@@ -504,5 +507,50 @@ export class CoachSession {
       rows: [{ op: 'plan', effective_from: this.today, routines: { [key]: items }, note: input.title }],
     }, before);
     return { card, doneLabel: '홈트 구성 변경안 만듦', result: { card_id: card.id, routine: key, items_after: items, note: APPLY_NOTE } };
+  }
+
+  // ------------------------------------------------------------ propose_shop_change
+  private shopChange(input: ProposeShopChangeInput): ToolOutcome {
+    const shop = this.snap.shop;
+    const before = this.totals();
+    const won = (n: number) => `${fmt(R(n))}원`;
+    const find = (id: string) => (['now', 'week'] as const).map((list) => ({ list, at: shop[list].findIndex((x) => x.id === id) })).find((x) => x.at >= 0);
+    const ops: NonNullable<Extract<CardRow, { op: 'plan' }>['shopOps']> = [];
+    const lines: CoachCard['lines'] = [];
+    let n = 0;
+    for (const c of input.changes) {
+      const item = c.action === 'remove' ? undefined : {
+        id: `${this.cardPrefix}-s${this.seq + 1}-${++n}`, name: c.name!, qty: c.qty!, price: c.price!,
+        url: `https://www.coupang.com/np/search?q=${encodeURIComponent(c.query!)}`,
+      };
+      if (c.action === 'add') {
+        shop[c.list!].push({ id: item!.id, name: item!.name, qty: item!.qty, price: item!.price });
+        ops.push({ action: 'add', id: item!.id, list: c.list!, item });
+        lines.push({ label: c.list === 'now' ? '한 번 살 것' : '매주 살 것', after: `${item!.name} · ${item!.qty} · ${won(item!.price)}` });
+        continue;
+      }
+      const at = find(c.id!);
+      if (!at) return this.err(`장보기 목록에 ${c.id} 항목이 없습니다. context.shop 의 id 를 쓰세요.`);
+      const old = shop[at.list][at.at]!;
+      if (c.action === 'remove') {
+        shop[at.list].splice(at.at, 1);
+        ops.push({ action: 'remove', id: old.id });
+        lines.push({ label: '빼기', before: `${old.name} · ${won(old.price)}`, after: '목록에서 뺌' });
+      } else {
+        shop[at.list][at.at] = { id: item!.id, name: item!.name, qty: item!.qty, price: item!.price };
+        ops.push({ action: 'replace', id: old.id, item });
+        lines.push({ label: '바꾸기', before: `${old.name} · ${won(old.price)}`, after: `${item!.name} · ${item!.qty} · ${won(item!.price)}` });
+      }
+    }
+    const total = (l: typeof shop.now) => l.reduce((s, x) => s + x.price, 0);
+    const card = this.card({
+      kind: 'shop',
+      title: input.title,
+      lines,
+      target: 'plan:shop',
+      note: `한 번 살 것 ${won(total(shop.now))} · 매주 ${won(total(shop.week))}`,
+      rows: [{ op: 'plan', effective_from: this.today, shopOps: ops, note: input.title }],
+    }, before);
+    return { card, doneLabel: '장보기 변경안 만듦', result: { card_id: card.id, now_total_won: total(shop.now), week_total_won: total(shop.week), shop_after: shop, note: APPLY_NOTE } };
   }
 }

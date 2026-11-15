@@ -15,7 +15,7 @@ import { useCoachChat } from './useCoachChat';
 import s from './coach.module.css';
 
 const KIND: Record<CoachCard['kind'], string> = {
-  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동',
+  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동', shop: '장보기',
 };
 const SLOT_NAME: Record<string, string> = { breakfast: '아침', lunch: '점심', snack: '간식', post: '운동 후', dinner: '저녁' };
 const ICON = { size: 18, strokeWidth: 1.9, 'aria-hidden': true } as const;

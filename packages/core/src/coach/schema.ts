@@ -149,6 +149,29 @@ export const SnapshotZ = z.object({
   /** today's session after one-day changes */
   session: WeekTypeZ,
   adjustments: z.array(DayAdjustmentZ).max(40),
+  /** who the user is (onboarding answers and preferences); null for the owner's pre-onboarding install */
+  profile: z.object({
+    name: text(30).optional(),
+    sex: z.enum(['male', 'female']).optional(),
+    age: z.number().int().min(10).max(110).optional(),
+    heightCm: num(100, 250).optional(),
+    goalWeightKg: num(30, 300).optional(),
+    activity: z.enum(['sedentary', 'light', 'active']).optional(),
+    allergies: z.array(text(20)).max(10).optional(),
+    dislikes: z.array(text(30)).max(20).optional(),
+    cooking: text(20).optional(),
+    eatingOut: text(20).optional(),
+    workoutPlace: text(20).optional(),
+    workoutDays: z.number().int().min(0).max(7).optional(),
+    budgetWeek: num(0, 5_000_000).optional(),
+    note: text(300).optional(),
+  }).nullable(),
+  /** the user's shopping list (ids are what propose_shop_change refers to) and rule cards */
+  shop: z.object({
+    now: z.array(z.object({ id: text(80), name: text(80), qty: text(60), price: num(0, 1_000_000) })).max(30),
+    week: z.array(z.object({ id: text(80), name: text(80), qty: text(60), price: num(0, 1_000_000) })).max(30),
+  }),
+  rules: z.array(z.object({ icon: text(30), title: text(60), desc: text(160) })).max(6),
 });
 
 // ---------------------------------------------------------------- request body (client -> server)
@@ -256,6 +279,26 @@ export const AdjustWorkoutInputZ = z.object({
   if (v.scope === 'routine' && (!v.routine || !v.items?.length)) ctx.addIssue({ code: 'custom', path: ['items'], message: 'scope routine needs routine and items' });
 });
 
+export const ShopChangeZ = z.object({
+  action: z.enum(['add', 'remove', 'replace']),
+  id: text(80).optional().describe('remove/replace: context.shop 의 항목 id'),
+  list: z.enum(['now', 'week']).optional().describe('add: now = 한 번 사 두는 것, week = 매주 사는 신선식품'),
+  name: text(60).optional().describe('add/replace: 상품 이름, 예: "냉동 닭가슴살 1kg"'),
+  qty: text(40).optional().describe('add/replace: 몇 개 · 며칠치'),
+  price: z.number().int().min(0).max(300_000).optional().describe('add/replace: 대략 가격 (원)'),
+  query: text(60).optional().describe('add/replace: 쿠팡 검색어'),
+}).superRefine((c, ctx) => {
+  if (c.action !== 'add' && !c.id) ctx.addIssue({ code: 'custom', path: ['id'], message: `${c.action} needs id` });
+  if (c.action === 'add' && !c.list) ctx.addIssue({ code: 'custom', path: ['list'], message: 'add needs list' });
+  if (c.action !== 'remove' && (!c.name || !c.qty || c.price == null || !c.query)) ctx.addIssue({ code: 'custom', path: ['name'], message: `${c.action} needs name, qty, price and query` });
+});
+
+export const ProposeShopChangeInputZ = z.object({
+  changes: z.array(ShopChangeZ).min(1).max(8),
+  title: text(60).min(1).describe('카드 제목, 예: "닭가슴살을 더 싼 냉동 제품으로"'),
+  reason: text(200),
+});
+
 // ---------------------------------------------------------------- change cards (server -> client)
 
 export const CardRowZ = z.discriminatedUnion('op', [
@@ -280,6 +323,13 @@ export const CardRowZ = z.discriminatedUnion('op', [
     meals: z.partialRecord(MealKeyZ, MealOverrideZ.nullable()).optional(),
     week: z.partialRecord(z.enum(DOW), WeekTypeZ).optional(),
     routines: z.partialRecord(RoutineKeyZ, z.array(RoutineItemZ).min(1).max(12)).optional(),
+    /** shopping list edits, applied to the list as it is at apply time */
+    shopOps: z.array(z.object({
+      action: z.enum(['add', 'remove', 'replace']),
+      id: text(80),
+      list: z.enum(['now', 'week']).optional(),
+      item: z.object({ id: text(80), name: text(80), qty: text(60), price: num(0, 1_000_000), url: z.url().max(400).refine((u) => u.startsWith('https://www.coupang.com/'), 'coupang link') }).optional(),
+    })).max(10).optional(),
     note: text(80),
   }),
   z.object({ op: z.literal('adjustment'), date: dateZ, slot: SlotZ.nullable(), change: AdjustmentChangeZ, reason: text(300) }),
@@ -288,11 +338,11 @@ export const CardRowZ = z.discriminatedUnion('op', [
 ]);
 
 /** Where "보기" goes: plan:meal:<key>, plan:workout:week:<dow>, plan:workout:routine:<A|B>, today:meal:<key>, today:workout */
-export const CardTargetZ = z.string().regex(/^(plan:meal:(breakfast|lunch|snack|post|dinner)|plan:workout:week:[0-6]|plan:workout:routine:[AB]|today:meal:(breakfast|lunch|snack|post|dinner|extra)|today:workout)$/);
+export const CardTargetZ = z.string().regex(/^(plan:meal:(breakfast|lunch|snack|post|dinner)|plan:workout:week:[0-6]|plan:workout:routine:[AB]|plan:shop|today:meal:(breakfast|lunch|snack|post|dinner|extra)|today:workout)$/);
 
 export const CardZ = z.object({
   id: text(64).min(1),
-  kind: z.enum(['log_food', 'plan_change', 'day_adjustment', 'rebalance', 'skip_meal', 'workout']),
+  kind: z.enum(['log_food', 'plan_change', 'day_adjustment', 'rebalance', 'skip_meal', 'workout', 'shop']),
   title: text(100).min(1),
   lines: z.array(z.object({ label: text(40), before: text(300).optional(), after: text(300) })).max(12),
   /** the day the card was made for (the snapshot date); plan and adjustment cards from an earlier day are refused */

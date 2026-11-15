@@ -26,6 +26,9 @@ const DESCRIPTIONS: Record<CoachToolName, string> = {
     + 'Call it after log_food or skip_meal in the same turn when the projected total is off target. Returns the proposed cuts, protein top-ups and carry-over. Does not save: it shows a change card.',
   skip_meal:
     'Mark a planned meal as skipped (0 kcal). Returns the protein gap and what to do about it. Does not save: it shows a change card.',
+  propose_shop_change:
+    'Change the shopping list: add an item, remove one, or replace one with another product (cheaper, a different food, a bigger pack). Refer to existing items by their context.shop id. '
+    + 'When a meal swaps a food, change the matching shop item in the same turn. The server builds the Coupang search link. Does not save: it shows a change card.',
   adjust_workout:
     'Change the workout plan. scope "today": today\'s session only ("오늘 하체 대신 걷기"). scope "week": which session each weekday gets from today on (A upper body and core, B lower body, walk, light = A with 3 rounds, rest). '
     + 'scope "routine": the exercises and base reps of routine A or B (pass the full list in order; the app scales reps by week). Does not save: it shows a change card.',

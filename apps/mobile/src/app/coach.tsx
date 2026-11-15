@@ -16,7 +16,7 @@ import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Btn } from '@/components/ui';
 
 const KIND: Record<CoachCard['kind'], string> = {
-  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동',
+  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동', shop: '장보기',
 };
 const rise = FadeInDown.duration(300).withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] });
 const signed = (n: number, unit: string) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(Math.round(n)))}${unit}`;

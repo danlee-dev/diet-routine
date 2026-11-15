@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  adjustedTarget, applyPlanChanges, DEFAULT_PROGRAM, effectiveRoutines, effectiveWeek, plan, sessionFor,
+  adjustedTarget, applyPlanChanges, DEFAULT_PROGRAM, effectiveRoutines, effectiveRules, effectiveShop, effectiveWeek, plan, sessionFor,
   type DayAdjustment, type DayRow, type MealEntryRow, type PlanOverride,
 } from '../src';
 import {
@@ -27,6 +27,8 @@ const build = (now: Date, o: { override?: PlanOverride | null; adjustments?: Day
     meals: applyPlanChanges(plan({ scen: 'home', eatout: 'lunch', wake: d.wake_min }), override, adjustments),
     override, planMeta: null, adjustments, target: adjustedTarget(1390, adjustments),
     week: effectiveWeek(override), routines: effectiveRoutines(override), session: sessionFor(now.getDay(), override, adjustments),
+    shop: effectiveShop(override), rules: effectiveRules(override),
+    profile: { onboarding: { sex: 'male', age: 30, heightCm: 171, goalWeightKg: 70, allergies: ['nuts'], dislikes: ['오이'], budgetWeek: 80000, weird: { nested: true }, workoutDays: 99 }, preferences: { cooking: 'microwave' } },
     entries: o.entries ?? [],
   };
 };
@@ -96,7 +98,7 @@ describe('tool input validation', () => {
     expect(t.input_schema.type).toBe('object');
     expect(t.input_schema).not.toHaveProperty('$schema');
     expect(t.input_schema.required).toEqual(expect.arrayContaining(['slot', 'name', 'nutrition']));
-    expect(COACH_TOOLS.map((x) => x.name).sort()).toEqual(['adjust_workout', 'log_food', 'propose_day_adjustment', 'propose_plan_change', 'rebalance_today', 'skip_meal']);
+    expect(COACH_TOOLS.map((x) => x.name).sort()).toEqual(['adjust_workout', 'log_food', 'propose_day_adjustment', 'propose_plan_change', 'propose_shop_change', 'rebalance_today', 'skip_meal']);
     // the API rejects oneOf / anyOf / allOf at the top level of input_schema
     for (const tool of COACH_TOOLS) for (const k of ['oneOf', 'anyOf', 'allOf']) expect(tool.input_schema, `${tool.name}.${k}`).not.toHaveProperty(k);
   });
@@ -263,5 +265,35 @@ describe('client stream', () => {
     t = setCardState(t, card.id, 'applied');
     const h = historyFor([{ role: 'user', id: 'u', text: '간식 건너뛸래', images: [] }, t]);
     expect(h[1]!.text).toBe('점심을 기록합니다.\n\n[변경 카드: 간식 건너뛰기 · 사용자가 적용함]');
+  });
+});
+
+
+describe('profile, shop and rules in the snapshot', () => {
+  it('keeps known profile fields, bounded, and the shop list with ids', () => {
+    const s = snap();
+    expect(s.profile).toEqual({ sex: 'male', age: 30, heightCm: 171, goalWeightKg: 70, allergies: ['nuts'], dislikes: ['오이'], budgetWeek: 80000, workoutDays: 7, cooking: 'microwave' });
+    expect(s.shop.now.length).toBeGreaterThan(0);
+    expect(s.shop.now[0]).toHaveProperty('id');
+    expect(s.shop.now[0]).not.toHaveProperty('url');
+    expect(s.rules.length).toBeGreaterThan(0);
+    expect(SnapshotZ.safeParse(s).success).toBe(true);
+  });
+
+  it('shop change cards carry ops with server-built Coupang links', () => {
+    const s = new CoachSession(snap(), 't');
+    const id = s.snap.shop.now[0]!.id;
+    const p = parseToolInput('propose_shop_change', { changes: [
+      { action: 'replace', id, name: '냉동 닭가슴살 1kg', qty: '2봉 · 14일치', price: 19800, query: '냉동 닭가슴살 1kg' },
+      { action: 'add', list: 'week', name: '양배추 1통', qty: '1통', price: 3500, query: '양배추' },
+    ], title: '닭가슴살을 더 싼 걸로', reason: '예산' });
+    expect(p.ok).toBe(true);
+    const out = s.run('propose_shop_change', p.ok ? p.data : null);
+    const row = out.card!.rows[0]!;
+    expect(out.card!.target).toBe('plan:shop');
+    expect(row.op === 'plan' && row.shopOps?.map((o) => o.action)).toEqual(['replace', 'add']);
+    expect(row.op === 'plan' && row.shopOps?.every((o) => !o.item || o.item.url.startsWith('https://www.coupang.com/np/search?q='))).toBe(true);
+    expect(s.run('propose_shop_change', { changes: [{ action: 'remove', id: 'nope' }], title: 'x', reason: 'x' }).isError).toBe(true);
+    expect(parseToolInput('propose_shop_change', { changes: [{ action: 'add', name: 'x', qty: '1', price: 1, query: 'x' }], title: 'x', reason: 'x' }).ok).toBe(false); // list missing
   });
 });

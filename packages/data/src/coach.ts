@@ -3,13 +3,14 @@
 // Plan and adjustment rows go through the shared plan API (plan.ts) with source 'ai', the card title as the
 // note and the chat message id, so the plan screens can show "코치가 바꿈" and link back to the conversation.
 import {
-  keyOf, withMeal, withRoutineItems,
-  type MealEntryRow, type MealKey, type MealOverride, type PlanOverride, type PlanRow, type RoutineDef, type RoutineKey, type WeekType,
-  type WeightRow, type WorkoutRow,
+  effectiveShop, keyOf, withMeal, withRoutineItems,
+  type MealEntryRow, type MealKey, type MealOverride, type PlanOverride, type PlanRow, type RoutineDef, type RoutineKey, type ShopItem,
+  type ShopPlan, type WeekType, type WeightRow, type WorkoutRow,
 } from '@diet/core';
 import { buildSnapshot, CardZ, type CardRow, type CoachCard, type CoachSnapshot } from '@diet/core/coach';
 import { skipMeal, todayView, type Env, type Undo } from './model';
 import { addAdjustments, effectivePlan, planMeta, savePlan, setTodaySession } from './plan';
+import { profileOf } from './profile';
 import { workoutPlan } from './today';
 
 /** Everything the coach needs about right now, from the same view the today screen renders. */
@@ -28,6 +29,9 @@ export function coachSnapshot(env: Env, timeZone?: string): CoachSnapshot {
     week: v.week,
     routines: v.routines,
     session: v.session,
+    profile: (() => { const p = profileOf(env.store); return p ? { onboarding: p.onboarding ?? null, preferences: p.preferences ?? null } : null; })(),
+    shop: v.shop,
+    rules: v.rules,
     entries: v.entries,
     weights: env.store.all<WeightRow>('weights'),
     workouts: env.store.all<WorkoutRow>('workouts'),
@@ -43,6 +47,42 @@ interface PlanInverse {
   meals: [MealKey, MealOverride | undefined][];
   week: [string, WeekType | undefined][];
   routines: [RoutineKey, RoutineDef['items'] | undefined][];
+  shop: ShopInverse[];
+}
+
+type ShopOp = NonNullable<PlanPatch['shopOps']>[number];
+type ShopInverse = { action: 'remove'; id: string } | { action: 'insert'; list: 'now' | 'week'; at: number; item: ShopItem } | { action: 'replace'; id: string; item: ShopItem };
+const findItem = (shop: ShopPlan, id: string) => (['now', 'week'] as const).map((list) => ({ list, at: shop[list].findIndex((x) => x.id === id) })).find((x) => x.at >= 0);
+
+/** Apply shop edits to the list as it is now; an edit whose item is already gone is skipped. */
+function applyShopOps(base: ShopPlan, ops: ShopOp[]): { shop: ShopPlan; inverse: ShopInverse[] } {
+  const shop: ShopPlan = { now: [...base.now], week: [...base.week], cycle: base.cycle };
+  const inverse: ShopInverse[] = [];
+  for (const op of ops) {
+    if (op.action === 'add' && op.item && op.list && !findItem(shop, op.item.id)) {
+      shop[op.list].push(op.item);
+      inverse.push({ action: 'remove', id: op.item.id });
+      continue;
+    }
+    const at = findItem(shop, op.id);
+    if (!at) continue;
+    const old = shop[at.list][at.at]!;
+    if (op.action === 'remove') { shop[at.list].splice(at.at, 1); inverse.push({ action: 'insert', list: at.list, at: at.at, item: old }); }
+    else if (op.action === 'replace' && op.item) { shop[at.list][at.at] = op.item; inverse.push({ action: 'replace', id: op.item.id, item: old }); }
+  }
+  return { shop, inverse };
+}
+
+function undoShopOps(base: ShopPlan, inverse: ShopInverse[]): ShopPlan {
+  const shop: ShopPlan = { now: [...base.now], week: [...base.week], cycle: base.cycle };
+  for (const inv of [...inverse].reverse()) {
+    if (inv.action === 'insert') { if (!findItem(shop, inv.item.id)) shop[inv.list].splice(Math.min(inv.at, shop[inv.list].length), 0, inv.item); continue; }
+    const at = findItem(shop, inv.id);
+    if (!at) continue;
+    if (inv.action === 'remove') shop[at.list].splice(at.at, 1);
+    else shop[at.list][at.at] = inv.item;
+  }
+  return shop;
 }
 
 const setWeek = (o: PlanOverride, dow: string, t: WeekType | undefined): PlanOverride => {
@@ -60,7 +100,7 @@ const setRoutine = (o: PlanOverride, k: RoutineKey, items: RoutineDef['items'] |
 /** Fold a patch onto a plan version. Meal fields merge onto the meal as it is now, so a card never carries stale edits. */
 function foldPatch(base: PlanOverride, row: PlanPatch): { next: PlanOverride; inverse: PlanInverse } {
   let next = base;
-  const inverse: PlanInverse = { meals: [], week: [], routines: [] };
+  const inverse: PlanInverse = { meals: [], week: [], routines: [], shop: [] };
   for (const [k, m] of Object.entries(row.meals ?? {}) as [MealKey, MealOverride | null][]) {
     const prev = next.meals?.[k];
     inverse.meals.push([k, prev]);
@@ -76,6 +116,12 @@ function foldPatch(base: PlanOverride, row: PlanPatch): { next: PlanOverride; in
     inverse.routines.push([k, next.workout?.routines?.[k]?.items]);
     next = setRoutine(next, k, items);
   }
+  if (row.shopOps?.length) {
+    // a user still on the built-in list gets their own copy the first time the coach edits it
+    const r = applyShopOps(effectiveShop(next), row.shopOps);
+    next = { ...next, shop: r.shop };
+    inverse.shop = r.inverse;
+  }
   return { next, inverse };
 }
 
@@ -84,10 +130,11 @@ function unfold(cur: PlanOverride, inv: PlanInverse): PlanOverride {
   for (const [k, m] of inv.meals) next = withMeal(next, k, m ?? null);
   for (const [d, t] of inv.week) next = setWeek(next, d, t);
   for (const [k, items] of inv.routines) next = setRoutine(next, k, items);
+  if (inv.shop.length) next = { ...next, shop: undoShopOps(effectiveShop(next), inv.shop) };
   return next;
 }
 
-const canon = (o: PlanOverride | null) => JSON.stringify({ meals: o?.meals ?? {}, workout: o?.workout ?? null });
+const canon = (o: PlanOverride | null) => JSON.stringify({ meals: o?.meals ?? {}, workout: o?.workout ?? null, shop: o?.shop ?? null, rules: o?.rules ?? null });
 
 /**
  * Save a plan patch from its date on. Later-dated versions (e.g. "내일부터" saved earlier) get the same patch,
