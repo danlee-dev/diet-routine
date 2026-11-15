@@ -74,3 +74,18 @@ describe('eating part of a meal', () => {
     expect(todayView(env).sum.eaten).toBe(110);
   });
 });
+
+describe('rebalance today', () => {
+  it('proposes cuts after a big extra meal and lands closer to target once applied', async () => {
+    const { logFood, rebalanceToday, applyRebalance, rebalanceWorthShowing } = await import('../src');
+    const env = await makeEnv();
+    logFood(env, { date: '2026-11-15', slot: 'extra', name: '후라이드 치킨', amount: '반 마리', kcal: 600, protein: 35, source: 'preset' });
+    const v = todayView(env);
+    const p = rebalanceToday(env, v);
+    expect(p.over).toBeGreaterThan(100);
+    expect(rebalanceWorthShowing(p)).toBe(true);
+    applyRebalance(env, p);
+    const after = rebalanceToday(env, todayView(env));
+    expect(after.over).toBeLessThan(p.over);
+  });
+});

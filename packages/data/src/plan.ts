@@ -1,11 +1,11 @@
 // The editable plan: versions in `plans` (effective from a date) and one-day changes in `plan_adjustments`.
 // Web, iPhone and the AI coach all write through these functions, so an edit on one shows up the same on the other.
 import {
-  addDays, keyOf as toKey, parseKey, programKey, withMeal, withRoutineItems, withWeekDay,
-  type DayAdjustment, type MealKey, type MealOverride, type PlanAdjustmentRow, type PlanOverride, type PlanRow,
+  addDays, keyOf as toKey, parseKey, programKey, proposalToAdjustments, rebalance, withMeal, withRoutineItems, withWeekDay,
+  type DayAdjustment, type Proposal, type MealKey, type MealOverride, type PlanAdjustmentRow, type PlanOverride, type PlanRow,
   type RoutineDef, type RoutineKey, type WeekType,
 } from '@diet/core';
-import type { Env } from './model';
+import type { Env, TodayView } from './model';
 
 export type PlanSource = 'ai' | 'user';
 
@@ -107,3 +107,22 @@ export function setTodaySession(env: Env, t: WeekType, source: 'user' | 'ai' = '
 
 /** Program day key helper for callers that think in program days. */
 export const planDateKey = (env: Env, i: number): string => programKey(env.program, i);
+
+// ---------- rebalance ----------
+
+/** How today would end if the rest goes as planned, and what to change to land on target. */
+export function rebalanceToday(env: Env, v: TodayView): Proposal {
+  const appliedCuts = new Set(v.adjustments.map((a) => a.change.cut_id).filter((x): x is string => !!x));
+  return rebalance({
+    meals: v.meals, logged: v.eaten, eatenKcal: v.sum.eaten, eatenProtein: v.sum.eatenProtein,
+    target: v.target, proteinFloor: env.program.proteinFloor, appliedCuts, nowMin: v.nowMin,
+  });
+}
+
+/** Worth showing: over by more than 100 kcal with something to change, or short on protein. */
+export const rebalanceWorthShowing = (p: Proposal): boolean =>
+  (p.over > 100 && (p.cuts.length > 0 || p.carry.length > 0)) || p.proteinAdds.length > 0;
+
+/** Write the proposal as day adjustments (today's cuts and adds, carry-over on the next days). Returns undo. */
+export const applyRebalance = (env: Env, p: Proposal, reason?: string): (() => void) =>
+  addAdjustments(env, proposalToAdjustments(p, reason ?? (p.over > 0 ? `계획대로면 ${p.over}kcal 넘쳐서 맞췄습니다` : '단백질이 모자라서 더했습니다')));
