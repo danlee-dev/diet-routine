@@ -2,13 +2,14 @@
 // AI coach panel: right-side panel on tablet/desktop, full-screen sheet on phones.
 // Steps stream in as lines, the answer streams as text, change cards are applied only on 적용.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowUp, ArrowUpRight, Check, ChevronDown, ImagePlus, MessageCircle, RotateCcw, Square, X } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, Check, ChevronDown, ImagePlus, RotateCcw, Square, X } from 'lucide-react';
 import { fmt } from '@diet/core';
 import { coachSnapshot } from '@diet/data';
 import { suggestedPrompts, turnSeconds, type AssistantTurn, type CoachCard, type CoachStep, type TurnPart } from '@diet/core/coach';
 import { useEnv } from '@/lib/hooks';
 import { useOverlay } from '../ui';
-import { SyncSheet } from '../sheets';
+import { SettingsSheet } from '../Settings';
+import { Icon } from '../Icon';
 import { prepareImage, type PreparedImage } from './image';
 import { useCoachChat } from './useCoachChat';
 import s from './coach.module.css';
@@ -22,7 +23,7 @@ const hostOf = (url: string) => { try { return new URL(url).hostname.replace(/^w
 
 /** Top-bar entry. */
 export function CoachButton({ onClick }: { onClick: () => void }) {
-  return <button type="button" className="kbtn" onClick={onClick}><MessageCircle {...ICON} className="lucide" />코치</button>;
+  return <button type="button" className="kbtn" aria-label="코치" onClick={onClick}><Icon name="message-circle" size="sm" /><span className="kl">코치</span></button>;
 }
 
 /**
@@ -128,7 +129,7 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
   };
 
   const view = (target: string) => { onClose(); openTarget(target, s.flash!); };
-  const login = () => { onClose(); overlay.open(<SyncSheet />); };
+  const login = () => { onClose(); overlay.open(<SettingsSheet />); };
 
   return (
     <>

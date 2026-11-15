@@ -4,8 +4,8 @@
 // Run: pnpm dlx tsx scripts/check-schema-shape.ts
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_PROGRAM } from '@diet/core';
-import { completeWorkout, DataStore, logFood, setDay, setMealOverride, setRoutineItems, setTodaySession, setWeekDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
+import { DEFAULT_PROGRAM, generatePlan } from '@diet/core';
+import { completeOnboarding, completeWorkout, DataStore, logFood, setDay, setMealOverride, setRoutineItems, setTodaySession, setWeekDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
 
 const env = Object.fromEntries(
   readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
@@ -28,6 +28,8 @@ setWeekDay(e, 0, 'walk');
 setRoutineItems(e, 'A', [{ name: '푸시업', n: 15, unit: '회' }]);
 setMealOverride(e, 'snack', { removed: true, note: '간식 빼기' }, 'ai');
 setTodaySession(e, 'A');
+const answers = { sex: 'female', age: 28, heightCm: 162, weightKg: 64, goalWeightKg: 58, weeks: 8, activity: 'light', wakeMin: 420, eatingOut: 'rarely', cooking: 'microwave', allergies: [], dislikes: [], workoutPlace: 'gym', workoutDays: 3, budgetWeek: 80000 } as const;
+completeOnboarding(e, { ...answers, allergies: [], dislikes: [] }, generatePlan({ ...answers, allergies: [], dislikes: [] }));
 await store.flush();
 
 const snap = JSON.parse(snapshot.value!) as { tables: Record<string, Record<string, Record<string, unknown>>> };

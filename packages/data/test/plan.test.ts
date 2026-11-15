@@ -89,3 +89,31 @@ describe('rebalance today', () => {
     expect(after.over).toBeLessThan(p.over);
   });
 });
+
+describe('over causes', () => {
+  it('names food logged on top of the plan, not partial meals', async () => {
+    const { logFood, overCauses, eatPartial } = await import('../src');
+    const env = await makeEnv();
+    eatPartial(env, '2026-11-15', 'snack', [true, false]);
+    logFood(env, { date: '2026-11-15', slot: 'extra', name: '후라이드 치킨', amount: '반 마리', kcal: 1150, protein: 70, source: 'preset' });
+    expect(overCauses(todayView(env))).toEqual([{ name: '후라이드 치킨', kcal: 1150 }]);
+  });
+});
+
+describe('rebalance settles', () => {
+  it('does not ask again for the same excess after applying', async () => {
+    const { logFood, rebalanceToday, applyRebalance, rebalanceWorthShowing } = await import('../src');
+    const env = await makeEnv();
+    logFood(env, { date: '2026-11-15', slot: 'extra', name: '후라이드 치킨', amount: '반 마리', kcal: 1150, protein: 70, source: 'preset' });
+    applyRebalance(env, rebalanceToday(env, todayView(env)));
+    expect(rebalanceWorthShowing(rebalanceToday(env, todayView(env)))).toBe(false);
+  });
+
+  it('skips a cut whose item was edited out of the meal', async () => {
+    const { logFood, rebalanceToday } = await import('../src');
+    const env = await makeEnv();
+    setMealOverride(env, 'snack', { items: [{ name: '헬로틴 저염 닭가슴살', amount: '1팩', kcal: 110, protein: 23 }], kcal: 110, protein: 23 });
+    logFood(env, { date: '2026-11-15', slot: 'extra', name: '라면', amount: '1개', kcal: 500, protein: 10, source: 'preset' });
+    expect(rebalanceToday(env, todayView(env)).cuts.map((c) => c.id)).not.toContain('snack-nuts');
+  });
+});

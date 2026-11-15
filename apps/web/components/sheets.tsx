@@ -1,14 +1,13 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  fmt, hhmm, keypadReduce, MEALS, ORDER, pad, programDate, programKey, ROUTINES, SCEN, schedule, sgn, mdw, minutesOf, timeLabel,
+  fmt, hhmm, keypadReduce, MEALS, ORDER, pad, programDate, programKey, SCEN, schedule, sgn, mdw, minutesOf,
   type KeypadState, type ScenId,
 } from '@diet/core';
 import {
   dayRecord, importLegacy, previousWeightFor, setSteps, setWake, setWeight, todayView, toggleMeal,
 } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
-import { getSupabase } from '@/lib/client';
 import { Icon } from './Icon';
 import { Keypad, SheetHead, useOverlay, Wheel, type WheelItem } from './ui';
 
@@ -44,12 +43,12 @@ export function TimeSheet() {
         <Wheel items={MINS} value={m} onChange={setM} label="분" />
         <span className="picker-unit">분</span>
       </div>
-      <div className="pick-plan" aria-live="polite">
-        {cells.map(([label, at]) => <div key={label} className="sq"><span>{label}</span><b>{hhmm(at)}</b></div>)}
-      </div>
+      <dl className="pick-plan" aria-live="polite">
+        {cells.map(([label, at]) => <div key={label}><dt>{label}</dt><dd>{hhmm(at)}</dd></div>)}
+      </dl>
       <div className="sheet-acts">
         <button type="button" className="btn-ghost pill" onClick={() => { const n = minutesOf(env.now()); setH(Math.floor(n / 60)); setM(n % 60); }}>지금</button>
-        <button type="button" className="btn-primary pill" onClick={save}><Icon name="check" />이 시간으로 맞추기</button>
+        <button type="button" className="btn-primary pill" onClick={save}><Icon name="check" size="sm" />이 시간으로 맞추기</button>
       </div>
     </div>
   );
@@ -96,7 +95,7 @@ export function WeightSheet({ i, backToDay }: { i: number; backToDay?: boolean }
       </p>
       <div className="sheet-acts">
         {has != null && <button type="button" className="btn-ghost pill" onClick={clear}>지우기</button>}
-        <button type="button" className="btn-primary pill" onClick={save}><Icon name="check" />저장</button>
+        <button type="button" className="btn-primary pill" onClick={save}><Icon name="check" size="sm" />저장</button>
       </div>
     </div>
   );
@@ -138,44 +137,7 @@ export function StepsSheet() {
         ))}
       </div>
       <Keypad onKey={press} />
-      <div className="sheet-acts"><button type="button" className="btn-primary pill" onClick={save}><Icon name="check" />저장</button></div>
-    </div>
-  );
-}
-
-// ---------------- meal detail (phone) ----------------
-export function MealSheet({ mealKey }: { mealKey: keyof typeof MEALS }) {
-  const env = useEnv();
-  const { close, toast } = useOverlay();
-  const v = todayView(env);
-  const m = v.meals.find((x) => x.key === mealKey);
-  if (!m) return null;
-  const done = v.eaten.has(mealKey);
-  return (
-    <div>
-      <SheetHead eyebrow={timeLabel(m)} title={m.name} />
-      <ul className="now-items">{m.items.map((x) => <li key={x.name}><span>{x.name}</span><span className="amt">{x.amount}</span></li>)}</ul>
-      <div className="stat-row">
-        <div><b className="num">{m.est ? '약 ' : ''}{fmt(m.kcal)}</b><span>kcal</span></div>
-        <div><b className="num">{m.protein}g</b><span>단백질</span></div>
-      </div>
-      {(m.hint || m.swaps.length > 0) && (
-        <div className="swaps sq">
-          <p className="eyebrow" style={{ marginBottom: 8 }}>알아둘 것</p>
-          <ul className="rules dots">{m.hint && <li>{m.hint}</li>}{m.swaps.map((s) => <li key={s}>{s}</li>)}</ul>
-        </div>
-      )}
-      <button
-        type="button"
-        className="btn-primary pill wide-btn"
-        onClick={() => {
-          const r = toggleMeal(env, v.ctx.key, mealKey);
-          close();
-          if (r.added) toast(`${m.name} 먹음 표시`, r.undo);
-        }}
-      >
-        <Icon name={done ? 'rotate-ccw' : 'check'} />{done ? '먹음 표시 취소' : '먹었습니다'}
-      </button>
+      <div className="sheet-acts"><button type="button" className="btn-primary pill" onClick={save}><Icon name="check" size="sm" />저장</button></div>
     </div>
   );
 }
@@ -185,8 +147,8 @@ export function RulesSheet({ id }: { id: ScenId }) {
   return (
     <div>
       <SheetHead eyebrow="오늘 상황" title={s.name} />
-      <p className="page-sub" style={{ marginTop: 8 }}>{s.short}</p>
-      <ul className="rules dots" style={{ marginTop: 16 }}>{s.rules.map((r) => <li key={r}>{r}</li>)}</ul>
+      <p className="s-lead">{s.short}</p>
+      <ol className="rule-list" style={{ marginTop: 14 }}>{s.rules.map((r) => <li key={r}>{r}</li>)}</ol>
     </div>
   );
 }
@@ -196,7 +158,8 @@ export function DaySheet({ i }: { i: number }) {
   const env = useEnv();
   const { open } = useOverlay();
   const rec = dayRecord(env, i);
-  const isToday = rec.key === todayView(env).ctx.key;
+  const tv = todayView(env);
+  const isToday = rec.key === tv.ctx.key;
   return (
     <div>
       <SheetHead eyebrow={isToday ? '오늘' : `${i + 1}일째`} title={mdw(rec.date)} />
@@ -207,7 +170,7 @@ export function DaySheet({ i }: { i: number }) {
             <li key={k}>
               <span>{MEALS[k].name}</span>
               <button type="button" className="check" aria-pressed={on} aria-label={`${MEALS[k].name} 먹음 표시`} onClick={() => toggleMeal(env, rec.key, k)}>
-                <Icon name="check" />
+                <Icon name="check" size="sm" />
               </button>
             </li>
           );
@@ -216,10 +179,10 @@ export function DaySheet({ i }: { i: number }) {
       <button type="button" className="field-row" onClick={() => open(<WeightSheet i={i} backToDay />, { focus: '#wh-kg' })}>
         <span className="lbl">체중</span>
         {rec.weight != null ? <span className="num">{rec.weight.toFixed(1)} kg</span> : <span className="muted">기록 없음</span>}
-        <Icon name="chevron-right" />
+        <Icon name="chevron-right" size="sm" />
       </button>
       <p className="note" style={{ marginTop: 14 }}>
-        물 {rec.water}/8잔 · 걸음 {fmt(rec.steps)}보{rec.workout ? ` · ${rec.workout.type === 'home_a' ? ROUTINES.A.name : rec.workout.type === 'home_b' ? ROUTINES.B.name : '운동'} 완료` : ''}
+        물 {rec.water}/8잔 · 걸음 {fmt(rec.steps)}보{rec.workout ? ` · ${rec.workout.type === 'home_a' ? tv.routines.A.name : rec.workout.type === 'home_b' ? tv.routines.B.name : '운동'} 완료` : ''}
       </p>
     </div>
   );
@@ -235,8 +198,8 @@ export function ImportSheet() {
   return (
     <div>
       <SheetHead eyebrow="백업" title="예전 기록 가져오기" />
-      <p className="note" style={{ marginTop: 8 }}>예전 사이트의 기록 탭에서 복사한 백업 코드를 붙여넣습니다. 같은 날짜 기록은 코드 내용으로 바뀝니다.</p>
-      <textarea className="input" style={{ marginTop: 14 }} placeholder="백업 코드를 붙여넣으세요" aria-label="백업 코드" autoComplete="off" spellCheck={false} value={code} onChange={(e) => { setCode(e.target.value); setArmed(false); }} />
+      <p className="s-lead">예전 사이트의 기록 탭에서 복사한 백업 코드를 붙여넣습니다. 같은 날짜 기록은 코드 내용으로 바뀝니다.</p>
+      <textarea className="input sq" style={{ marginTop: 14 }} placeholder="백업 코드를 붙여넣으세요" aria-label="백업 코드" autoComplete="off" spellCheck={false} value={code} onChange={(e) => { setCode(e.target.value); setArmed(false); }} />
       <p className="form-msg" aria-live="polite">{msg}</p>
       <div className="sheet-acts" style={{ marginTop: 10 }}>
         <button
@@ -247,7 +210,7 @@ export function ImportSheet() {
             navigator.clipboard.readText().then((x) => { setCode(x.trim()); setMsg(x ? '붙여넣었습니다. 가져오기를 누르세요' : '클립보드가 비어 있습니다'); }, () => setMsg('입력칸을 길게 눌러 붙여넣으세요'));
           }}
         >
-          <Icon name="clipboard-paste" />붙여넣기
+          <Icon name="clipboard-paste" size="sm" />붙여넣기
         </button>
         <button
           type="button"
@@ -266,81 +229,6 @@ export function ImportSheet() {
           }}
         >
           {armed ? '덮어쓰려면 한 번 더' : '가져오기'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------- sign in / sync ----------------
-export function SyncSheet() {
-  const env = useEnv();
-  const supa = getSupabase();
-  const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [step, setStep] = useState<'email' | 'code'>('email');
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  useEffect(() => {
-    if (!supa) return;
-    void supa.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null));
-  }, [supa]);
-  const pending = env.store.pendingCount();
-  const stateText = useMemo(() => ({
-    local: '이 기기에만 저장 중', syncing: '동기화 중', synced: '폰과 웹이 같은 기록을 봅니다', offline: '오프라인 · 연결되면 올립니다', error: '동기화 오류',
-  })[env.store.syncState], [env.store.syncState]);
-
-  if (!supa) {
-    return (
-      <div>
-        <SheetHead eyebrow="동기화" title="아직 연결 전입니다" />
-        <p className="note" style={{ marginTop: 8 }}>기록은 이 브라우저에 저장되고 있습니다. 동기화 서버가 연결되면 여기서 로그인해 폰 앱과 같은 기록을 보게 됩니다.</p>
-      </div>
-    );
-  }
-  if (userEmail) {
-    return (
-      <div>
-        <SheetHead eyebrow="동기화" title={stateText} />
-        <p className="note" style={{ marginTop: 8 }}>{userEmail}{pending ? ` · 올릴 기록 ${pending}개` : ''}</p>
-        {env.store.lastError && <p className="form-msg">{env.store.lastError}</p>}
-        <div className="sheet-acts">
-          <button type="button" className="btn-ghost pill" onClick={async () => { await supa.auth.signOut(); env.store.detach(); setUserEmail(null); }}>로그아웃</button>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <SheetHead eyebrow="동기화" title="로그인" />
-      <p className="note" style={{ marginTop: 8 }}>이메일로 로그인하면 폰 앱과 같은 기록을 봅니다. 지금 이 기기에 있는 기록은 로그인하면 그대로 올라갑니다.</p>
-      {step === 'email' ? (
-        <input className="input" style={{ width: '100%', marginTop: 14 }} type="email" inputMode="email" autoComplete="email" placeholder="이메일" value={email} onChange={(e) => setEmail(e.target.value)} />
-      ) : (
-        <input className="input" style={{ width: '100%', marginTop: 14, letterSpacing: '.3em' }} inputMode="numeric" autoComplete="one-time-code" placeholder="6자리 코드" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
-      )}
-      <p className="form-msg" aria-live="polite">{msg}</p>
-      <div className="sheet-acts" style={{ marginTop: 10 }}>
-        <button
-          type="button"
-          className="btn-primary pill"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              if (step === 'email') {
-                const { error } = await supa.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: location.origin } });
-                if (error) setMsg(error.message); else { setStep('code'); setMsg('메일의 링크를 누르거나, 메일에 있는 6자리 코드를 입력하세요'); }
-              } else {
-                const { data, error } = await supa.auth.verifyOtp({ email: email.trim(), token: code, type: 'email' });
-                if (error || !data.user) setMsg(error?.message ?? '코드가 맞지 않습니다');
-                else { setUserEmail(data.user.email ?? email); await env.store.attach(supa, data.user.id); }
-              }
-            } finally { setBusy(false); }
-          }}
-        >
-          {step === 'email' ? '코드 받기' : '로그인'}
         </button>
       </div>
     </div>

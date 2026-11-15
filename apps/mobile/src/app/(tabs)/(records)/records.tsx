@@ -2,7 +2,7 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native'
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
-import { addDays, DOW, md, parseKey, programDate, TARGET_BAND, TARGETS } from '@diet/core';
+import { addDays, bandFor, DOW, md, parseKey, programDate, weekGoalText } from '@diet/core';
 import { dayRecord, streaks, todayView, weightData } from '@diet/data';
 import { useEnv, useRefresh } from '@/lib/hooks';
 import { useTheme, type Theme } from '@/lib/theme';
@@ -37,7 +37,8 @@ export default function RecordsScreen() {
   const P = env.program;
   const { series, avg, stats } = weightData(env, v.ctx.idx);
   const st = streaks(env, v.ctx.idx);
-  const goal = TARGETS[Math.min(v.ctx.week, 4)]!.text;
+  const goal = weekGoalText(P, v.ctx.week);
+  const TARGET_BAND = bandFor(P);
 
   // chart
   const W = 340, H = 180, pl = 26, pr = 6, pt = 8, pb = 22, xmax = P.days - 1;

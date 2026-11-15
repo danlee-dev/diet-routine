@@ -103,9 +103,20 @@ export function SheetHead({ eyebrow, title }: { eyebrow: string; title: string }
   const { close } = useOverlay();
   return (
     <div className="sheet-head">
-      <div><p className="eyebrow">{eyebrow}</p><h2 className="now-title" id="sheet-title">{title}</h2></div>
+      <div><p className="eyebrow">{eyebrow}</p><h2 className="sheet-title" id="sheet-title">{title}</h2></div>
       <button type="button" className="icon-btn" data-close aria-label="닫기" onClick={close}><Icon name="x" /></button>
     </div>
+  );
+}
+
+/** Large page title. `trailing` sits on the title row (the person button on the phone). */
+export function PageHead({ eyebrow, title, trailing, children }: { eyebrow: ReactNode; title: string; trailing?: ReactNode; children?: ReactNode }) {
+  return (
+    <header className="ph">
+      <p className="eyebrow">{eyebrow}</p>
+      <div className="ph-row"><h1 className="ph-title">{title}</h1>{trailing}</div>
+      {children}
+    </header>
   );
 }
 
@@ -207,7 +218,7 @@ export function Keypad({ onKey }: { onKey: (k: string) => void }) {
       ))}
       <button type="button" className="fn sq" onClick={() => onKey('c')}>비우기</button>
       <button type="button" className="sq" onClick={() => onKey('0')}>0</button>
-      <button type="button" className="fn sq" aria-label="한 자리 지우기" onClick={() => onKey('b')}><Icon name="delete" /></button>
+      <button type="button" className="fn sq" aria-label="한 자리 지우기" onClick={() => onKey('b')}><Icon name="delete" size="lg" /></button>
     </div>
   );
 }

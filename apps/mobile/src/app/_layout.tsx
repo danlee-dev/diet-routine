@@ -3,7 +3,7 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppState, useColorScheme } from 'react-native';
 import { useTheme } from '@/lib/theme';
-import type { Env } from '@diet/data';
+import { adoptLegacyProfile, profileState, type Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
 import { EnvContext } from '@/lib/hooks';
 import { ToastProvider } from '@/components/ui';
@@ -26,7 +26,12 @@ export default function RootLayout() {
   const [env, setEnv] = useState<Env | null>(null);
 
   useEffect(() => {
-    void getEnv().then((e) => { setEnv(e); void SplashScreen.hideAsync(); });
+    void getEnv().then((e) => {
+      // the owner's install from before onboarding existed: keep their plan exactly as it was
+      if (profileState(e.store) === 'legacy') adoptLegacyProfile(e);
+      setEnv(e);
+      void SplashScreen.hideAsync();
+    });
   }, []);
 
   // sync with Supabase when signed in; flush the local snapshot when the app backgrounds

@@ -4,8 +4,9 @@ import { router, Stack } from 'expo-router';
 import Constants from 'expo-constants';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import { fmt, KEEP, mdw, parseKey } from '@diet/core';
+import { fmt, mdw, parseKey } from '@diet/core';
 import { useEnv } from '@/lib/hooks';
+import { todayView } from '@diet/data';
 import { getSupabase } from '@/lib/env';
 import { sendEmailCode, signInWithGoogle, signOut, useAuthUser, verifyEmailCode } from '@/lib/auth';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
@@ -164,7 +165,7 @@ export default function SettingsScreen() {
       </Section>
 
       <Section title="항상 지키는 것" inset={52}>
-        {KEEP.map((k) => <Row key={k.title} icon={k.icon} title={k.title} sub={k.desc} />)}
+        {todayView(env).rules.map((k) => <Row key={k.title} icon={k.icon} title={k.title} sub={k.desc} />)}
       </Section>
 
       <View style={{ alignItems: 'center', marginTop: 32, gap: 4 }}>

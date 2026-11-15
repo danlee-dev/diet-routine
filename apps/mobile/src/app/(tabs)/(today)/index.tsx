@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { fmt, hhmm, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
 import {
-  focusNow, projectedOver, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
+  focusNow, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
   type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
 import { useEnv, useMinuteTick, useRefresh } from '@/lib/hooks';
@@ -41,7 +41,6 @@ function Header({ v, t }: { v: TodayView; t: Theme }) {
   const env = useEnv();
   const sc = SCEN[v.scen];
   const left = remainingKcal(env, v);
-  const over = projectedOver(env, v);
   return (
     <View style={{ gap: 8, marginBottom: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -54,7 +53,7 @@ function Header({ v, t }: { v: TodayView; t: Theme }) {
       </View>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <Text style={{ color: t.muted, fontSize: 13.5, flexShrink: 1 }}>
-          <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{fmt(v.sum.eaten)}</Text> / {fmt(left + v.sum.eaten)} kcal{over > 0 ? ` · 계획대로면 +${fmt(over)}` : ''}
+          <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{fmt(v.sum.eaten)}</Text> / {fmt(left + v.sum.eaten)} kcal 먹음
         </Text>
         <Text style={{ color: t.muted, fontSize: 13.5 }}>{left >= 0 ? '남은 ' : '초과 '}<Text style={{ color: t.fg, fontWeight: '600' }}>{fmt(Math.abs(left))}</Text></Text>
       </View>

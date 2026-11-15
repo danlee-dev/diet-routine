@@ -1,6 +1,6 @@
 // The meal plan as data (user/coach overrides + day adjustments) and the rebalancing engine.
 // Rule of thumb: trim carbs and extras first, never protein; spread what cannot fit today over the next days.
-import { CUTS, PROTEIN_ADDS, ROUTINES, WEEK, type Cut, type MealKey, type PlanItem, type RoutineDef, type RoutineKey, type WeekType } from './data';
+import { CUTS, CYCLE, KEEP, PROTEIN_ADDS, ROUTINES, SHOP_NOW, SHOP_WEEK, WEEK, type CycleItem, type Cut, type MealKey, type PlanItem, type RoutineDef, type RoutineKey, type ShopItem, type WeekType } from './data';
 import type { Slot } from './db';
 import type { PlannedMeal } from './schedule';
 
@@ -21,14 +21,26 @@ export interface MealOverride {
 export interface WorkoutOverride {
   /** session per weekday, keyed by Date.getDay() as a string ("0" = Sunday) */
   week?: Partial<Record<string, WeekType>>;
-  /** a routine's exercises at base reps (the weekly multiplier still applies) */
-  routines?: Partial<Record<RoutineKey, { items: RoutineDef['items'] }>>;
+  /** a routine's exercises at base reps (the weekly multiplier still applies); name/focus for e.g. gym routines */
+  routines?: Partial<Record<RoutineKey, { items: RoutineDef['items']; name?: string; focus?: string }>>;
 }
+
+export interface RuleCard { icon: string; title: string; desc: string }
+
+/** A user's shopping list: once now, weekly fresh items, and date-based reorders. */
+export interface ShopPlan { now: ShopItem[]; week: ShopItem[]; cycle: CycleItem[] }
 
 export interface PlanOverride {
   meals?: Partial<Record<MealKey, MealOverride>>;
   workout?: WorkoutOverride;
+  /** personal shopping list (new users); null/absent = the built-in list */
+  shop?: ShopPlan;
+  /** "항상 지키는 것" cards */
+  rules?: RuleCard[];
 }
+
+export const effectiveShop = (o?: PlanOverride | null): ShopPlan => o?.shop ?? { now: SHOP_NOW, week: SHOP_WEEK, cycle: CYCLE };
+export const effectiveRules = (o?: PlanOverride | null): RuleCard[] => (o?.rules?.length ? o.rules : [...KEEP]);
 
 export const WEEK_LABEL: Record<WeekType, string> = { rest: '휴식', A: 'A', B: 'B', walk: '걷기', light: '가볍게' };
 export const WEEK_TYPES: WeekType[] = ['A', 'B', 'walk', 'light', 'rest'];
@@ -45,8 +57,8 @@ export function effectiveWeek(o?: PlanOverride | null): { t: WeekType; label: st
 export function effectiveRoutines(o?: PlanOverride | null): Record<RoutineKey, RoutineDef> {
   const r = o?.workout?.routines;
   return {
-    A: r?.A?.items?.length ? { ...ROUTINES.A, items: r.A.items } : ROUTINES.A,
-    B: r?.B?.items?.length ? { ...ROUTINES.B, items: r.B.items } : ROUTINES.B,
+    A: r?.A?.items?.length ? { ...ROUTINES.A, ...r.A, items: r.A.items } : ROUTINES.A,
+    B: r?.B?.items?.length ? { ...ROUTINES.B, ...r.B, items: r.B.items } : ROUTINES.B,
   };
 }
 
@@ -62,7 +74,7 @@ export const withWeekDay = (o: PlanOverride | null | undefined, dow: number, t: 
   ...o, workout: { ...o?.workout, week: { ...o?.workout?.week, [String(dow)]: t } },
 });
 export const withRoutineItems = (o: PlanOverride | null | undefined, key: RoutineKey, items: RoutineDef['items']): PlanOverride => ({
-  ...o, workout: { ...o?.workout, routines: { ...o?.workout?.routines, [key]: { items } } },
+  ...o, workout: { ...o?.workout, routines: { ...o?.workout?.routines, [key]: { ...o?.workout?.routines?.[key], items } } },
 });
 export const withMeal = (o: PlanOverride | null | undefined, key: MealKey, m: MealOverride | null): PlanOverride => {
   const meals = { ...o?.meals };
@@ -179,6 +191,8 @@ export function rebalance(input: RebalanceInput): Proposal {
     for (const c of CUTS) {
       if (need <= 0) break;
       if (!remainingSlots.has(c.slot) || input.appliedCuts.has(c.id)) continue;
+      // the item this cut trims must still be in the meal (it may have been edited out)
+      if (c.item && !remaining.find((m) => m.key === c.slot)?.items.some((x) => x.name.includes(c.item!))) continue;
       // keep protein at or above the floor
       if (protein - lostProtein - c.protein < input.proteinFloor && c.protein > 0) continue;
       const replaced = c.replaces ? cuts.findIndex((x) => x.id === c.replaces) : -1;
@@ -236,11 +250,13 @@ export function proposalToAdjustments(p: Proposal, reason: string): { offset: nu
     rows.push({ offset: 0, adj: { slot: a.slot, source: 'rebalance', reason, change: { kind: 'add', kcal_delta: a.kcal, protein_delta: a.protein, label: a.label } } });
   }
   for (const c of p.carry) {
-    rows.push({ offset: c.offset, adj: { slot: null, source: 'rebalance', reason, change: { kind: 'carry', kcal_delta: -c.kcal, label: `어제 넘친 만큼 ${c.kcal}kcal 덜 먹기` } } });
+    rows.push({ offset: c.offset, adj: { slot: null, source: 'rebalance', reason, change: { kind: 'carry', kcal_delta: -c.kcal, label: `넘친 만큼 ${c.kcal}kcal 덜 먹기` } } });
   }
-  // What moves to the next days is a loan against today: raise today's target by it, so a second rebalance
-  // the same day sees that part as handled instead of carrying the same excess again.
+  // today's side of the carry: the deferred amount is now owed by the next days, so today's target rises by it
+  // and the card settles instead of asking for the same excess again
   const carried = p.carry.reduce((s, c) => s + c.kcal, 0);
-  if (carried > 0) rows.push({ offset: 0, adj: { slot: null, source: 'rebalance', reason, change: { kind: 'carry', kcal_delta: carried, label: `다음 날로 넘김 ${carried}kcal` } } });
+  if (carried > 0) {
+    rows.push({ offset: 0, adj: { slot: null, source: 'rebalance', reason, change: { kind: 'carry', kcal_delta: carried, label: `${p.carry.length}일에 나눠 덜 먹기로 옮김` } } });
+  }
   return rows;
 }

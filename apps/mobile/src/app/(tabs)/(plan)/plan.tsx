@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import {
-  cycleSchedule, diffText, EXTRA, fmt, hhmm, MEALS, md, mdw, parseKey, programDate, repMultiplier, SCEN, SCEN_ORDER, SHOP_NOW, SHOP_WEEK, DOW,
+  cycleSchedule, diffText, EXTRA, fmt, hhmm, MEALS, md, mdw, parseKey, programDate, repMultiplier, SCEN, SCEN_ORDER, DOW,
   WEEK_LABEL, WEEK_TYPES, type MealKey, type RoutineKey, type ShopItem, type WeekType,
 } from '@diet/core';
 import { checklistSet, planMeta, setDay, setMealOverride, setTodaySession, setWeekDay, todayView, toggleChecklist } from '@diet/data';
@@ -245,20 +245,22 @@ function Shop({ t }: { t: Theme }) {
   };
   return (
     <>
-      <Section title="지금 한 번" inset={52}>{SHOP_NOW.map(row)}</Section>
-      <Section title="매주" inset={52}>{SHOP_WEEK.map(row)}</Section>
-      <Section title="날짜별 주문" inset={52}>
-        {cycleSchedule(v.ctx.idx, cycle).map((r) => (
-          <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 16 }}>
-            <Check t={t} on={r.done} label={`${r.name} 주문함`} onPress={() => toggleChecklist(env, 'cycle', r.id)} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: r.done ? t.muted : t.fg, fontSize: 15, fontWeight: '500' }}>{r.name}</Text>
-              <Text style={{ color: t.muted, fontSize: 13 }}>{mdw(programDate(env.program, r.dayNo - 1))} · {r.sub}</Text>
+      <Section title="지금 한 번" inset={52}>{v.shop.now.map(row)}</Section>
+      {v.shop.week.length > 0 && <Section title="매주" inset={52}>{v.shop.week.map(row)}</Section>}
+      {v.shop.cycle.length > 0 && (
+        <Section title="날짜별 주문" inset={52}>
+          {cycleSchedule(v.ctx.idx, cycle, v.shop.cycle).map((r) => (
+            <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 16 }}>
+              <Check t={t} on={r.done} label={`${r.name} 주문함`} onPress={() => toggleChecklist(env, 'cycle', r.id)} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: r.done ? t.muted : t.fg, fontSize: 15, fontWeight: '500' }}>{r.name}</Text>
+                <Text style={{ color: t.muted, fontSize: 13 }}>{mdw(programDate(env.program, r.dayNo - 1))} · {r.sub}</Text>
+              </View>
+              {!r.done && (r.diff <= 1 ? coupang(r.url) : <Text style={{ color: t.muted, fontSize: 13 }}>{diffText(r.diff)}</Text>)}
             </View>
-            {!r.done && (r.diff <= 1 ? coupang(r.url) : <Text style={{ color: t.muted, fontSize: 13 }}>{diffText(r.diff)}</Text>)}
-          </View>
-        ))}
-      </Section>
+          ))}
+        </Section>
+      )}
     </>
   );
 }

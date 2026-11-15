@@ -9,7 +9,7 @@ import { Icon } from '../Icon';
 type Tab = 'now' | 'weekly' | 'cycle';
 const sumPrice = (list: ShopItem[], skipOpt?: boolean) => list.reduce((a, x) => a + (skipOpt && x.optional ? 0 : x.price), 0);
 
-export function Shop({ embedded }: { embedded?: boolean }) {
+export function Shop() {
   const env = useEnv();
   const v = todayView(env);
   const shop = checklistSet(env, 'shop');
@@ -22,21 +22,17 @@ export function Shop({ embedded }: { embedded?: boolean }) {
     const done = shop.has(x.id);
     return (
       <li key={x.id} className={`shop-item${done ? ' is-done' : ''}`}>
-        <button type="button" className="cb" aria-pressed={done} aria-label={`${x.name} 담음 표시`} onClick={() => toggleChecklist(env, 'shop', x.id)}><Icon name="check" /></button>
+        <button type="button" className="cb" aria-pressed={done} aria-label={`${x.name} 담음 표시`} onClick={() => toggleChecklist(env, 'shop', x.id)}><Icon name="check" size="sm" /></button>
         <div style={{ minWidth: 0 }}><div className="shop-name">{x.name}</div><div className="shop-meta">{x.qty} · <span className="num">{fmt(x.price)}</span>원</div></div>
-        <a className="go" href={x.url} target="_blank" rel="noopener">쿠팡<Icon name="arrow-up-right" /></a>
+        <a className="ext" href={x.url} target="_blank" rel="noopener" aria-label={`${x.name} 쿠팡에서 열기`}>쿠팡<Icon name="arrow-up-right" size="sm" /></a>
       </li>
     );
   };
 
   return (
     <>
-      {!embedded && <div className="page-head">
-        <span className="eyebrow">장보기</span>
-        <h1 className="page-title">살 것</h1>
-        <p className="page-sub">링크를 누르면 적힌 용량 옵션이 선택된 쿠팡 상품이 열립니다. 가격은 11월 13일 기준입니다.</p>
-      </div>}
-      <div className="seg only-phone" role="group" aria-label="장보기 구분">
+      <p className="lead-note">링크를 누르면 적힌 용량이 선택된 쿠팡 상품이 열립니다. 가격은 11월 13일 기준입니다.</p>
+      <div className="subtabs only-phone" role="group" aria-label="장보기 구분">
         {([['now', '지금 한 번'], ['weekly', '매주'], ['cycle', '날짜별']] as [Tab, string][]).map(([k, l]) => (
           <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>{l}</button>
         ))}
@@ -59,10 +55,10 @@ export function Shop({ embedded }: { embedded?: boolean }) {
               const due = !r.done && r.diff <= 1;
               return (
                 <li key={r.id} className={`shop-item${r.done ? ' is-done' : ''}`}>
-                  <button type="button" className="cb" aria-pressed={r.done} aria-label={`${r.name} 주문함 표시`} onClick={() => toggleChecklist(env, 'cycle', r.id)}><Icon name="check" /></button>
+                  <button type="button" className="cb" aria-pressed={r.done} aria-label={`${r.name} 주문함 표시`} onClick={() => toggleChecklist(env, 'cycle', r.id)}><Icon name="check" size="sm" /></button>
                   <div style={{ minWidth: 0 }}><div className="shop-name">{r.name}</div><div className="shop-meta">{mdw(programDate(env.program, r.dayNo - 1))} · {r.sub}</div></div>
                   {r.done ? null : due
-                    ? <a className="go" href={r.url} target="_blank" rel="noopener">쿠팡<Icon name="arrow-up-right" /></a>
+                    ? <a className="ext" href={r.url} target="_blank" rel="noopener" aria-label={`${r.name} 쿠팡에서 열기`}>쿠팡<Icon name="arrow-up-right" size="sm" /></a>
                     : <span className="dday">{diffText(r.diff)}</span>}
                 </li>
               );
@@ -82,7 +78,7 @@ export function Shop({ embedded }: { embedded?: boolean }) {
             setTimeout(() => setArmed(false), 3000);
           }}
         >
-          {armed ? '한 번 더 누르면 지웁니다' : <><Icon name="rotate-ccw" />체크 모두 지우기</>}
+          {armed ? '한 번 더 누르면 지웁니다' : <><Icon name="rotate-ccw" size="sm" />체크 모두 지우기</>}
         </button>
       </div>
     </>
