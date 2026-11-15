@@ -21,7 +21,8 @@ const KIND: Record<CoachCard['kind'], string> = {
 const rise = FadeInDown.duration(300).withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] });
 const signed = (n: number, unit: string) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(Math.round(n)))}${unit}`;
 
-export default function CoachScreen() {
+/** The chat. `embedded` in the 코치 tab (no close button); a modal from elsewhere. */
+export function CoachView({ embedded = false }: { embedded?: boolean }) {
   const env = useEnv();
   const t = useTheme();
   const insets = useSafeAreaInsets();
@@ -80,9 +81,9 @@ export default function CoachScreen() {
             <Text style={{ color: t.fg2, fontSize: 14.5, fontWeight: '600' }}>새 대화</Text>
           </Pressable>
         )}
-        <Pressable accessibilityLabel="닫기" onPress={() => router.back()} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.surface, alignItems: 'center', justifyContent: 'center' }}>
+        {!embedded && <Pressable accessibilityLabel="닫기" onPress={() => router.back()} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.surface, alignItems: 'center', justifyContent: 'center' }}>
           <SymbolView name="xmark" size={14} tintColor={t.fg} weight="semibold" />
-        </Pressable>
+        </Pressable>}
       </View>
 
       <ScrollView
@@ -309,4 +310,8 @@ function Card({ t, card, state, blocked, onApply, onUndo, onView }: {
       </View>
     </View>
   );
+}
+
+export default function CoachScreen() {
+  return <CoachView />;
 }
