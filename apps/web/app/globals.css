@@ -385,8 +385,9 @@ ol.rule-list li::before{counter-increment:r;content:counter(r);position:absolute
 /* rebalance proposal: an outline, no fill */
 .rb-card{margin-top:14px;padding:18px 20px;border-radius:var(--r-lg);border:1.5px solid var(--fg)}
 .rb-t{font-size:16.5px;font-weight:600;line-height:1.4}
-.rb-card > .note{margin-top:4px}
-.rb-lines{margin-top:12px}
+.rb-why{margin-top:4px;font-size:13.5px;line-height:1.6;color:var(--fg-2)}
+.rb-group{margin-top:14px}
+.rb-group h4{margin:0 0 2px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .rb-lines li > span:first-child{color:var(--fg-2)}
 .rb-lines li > span:last-child{color:var(--fg);font-weight:600}
 .rb-card .card-acts{margin-top:14px}

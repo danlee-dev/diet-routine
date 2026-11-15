@@ -5,7 +5,7 @@ import {
   type MealKey, type RoutineKey,
 } from '@diet/core';
 import {
-  applyRebalance, focusNow, importLegacyData, projectedOver, rebalanceToday, rebalanceWorthShowing, recommendation, remainingKcal, setWake, setWater,
+  applyRebalance, focusNow, importLegacyData, overCauses, rebalanceToday, rebalanceWorthShowing, recommendation, remainingKcal, setWake, setWater,
   skipMeal, timeline, todayView, toggleMeal,
   type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
@@ -48,7 +48,6 @@ function Header({ v }: { v: TodayView }) {
   const { open } = useOverlay();
   const sc = SCEN[v.scen];
   const left = remainingKcal(env, v);
-  const over = projectedOver(env, v);
   return (
     <PageHead eyebrow={`${v.ctx.label} · ${v.ctx.week}주차 ${v.ctx.no}일째`} title="오늘" trailing={<AccountButton className="only-phone" />}>
       <button type="button" className="scen-link" onClick={() => open(<ScenarioSheet />)} aria-label={`오늘 상황: ${sc.name}. 바꾸기`}>
@@ -58,7 +57,6 @@ function Header({ v }: { v: TodayView }) {
         <span className="left">{left >= 0 ? <><b>{fmt(left)}</b>kcal 남음</> : <><b>{fmt(-left)}</b>kcal 초과</>}</span>
         <span className="of">
           먹은 {fmt(v.sum.eaten)} / {fmt(left + v.sum.eaten)} · 단백질 {v.sum.eatenProtein}/{v.sum.totalProtein}g
-          {over > 0 ? ` · 계획대로면 +${fmt(over)}` : ''}
         </span>
       </div>
       <div className="segs" aria-hidden="true">{v.meals.map((m) => <span key={m.key} className={v.eaten.has(m.key) && !v.skipped.has(m.key) ? 'on' : ''} />)}</div>
@@ -321,18 +319,36 @@ function RebalanceCard({ v }: { v: TodayView }) {
   const fresh = p.proteinAdds.length > 0 || p.over - carried > 100;
   if (!rebalanceWorthShowing(p) || !fresh || dismissedNow === dkey || devicePref.get<boolean>(dkey, false)) return null;
   const mealName = (k: MealKey) => (v.meals.find((m) => m.key === k)?.name ?? MEALS[k].name).replace(/ \(.+\)$/, '');
-  const lines: [string, string][] = [
-    ...p.cuts.map((c): [string, string] => [`${mealName(c.slot)} · ${c.label}`, `−${fmt(c.kcal)}kcal`]),
-    ...p.proteinAdds.map((a): [string, string] => [`${mealName(a.slot)} · ${a.label} 더하기`, `+${fmt(a.kcal)}kcal`]),
-    ...p.carry.map((c): [string, string] => [c.offset === 1 ? '내일' : `${c.offset}일 뒤`, `−${fmt(c.kcal)}kcal`]),
-  ];
-  if (p.stepsBonus > 0) lines.push(['내일 걸음', `+${fmt(p.stepsBonus)}`]);
+  // listed in meal order so each meal's changes sit together (the engine returns them by preference)
+  const order = (k: MealKey) => { const i = v.meals.findIndex((m) => m.key === k); return i < 0 ? 99 : i; };
+  const today: [string, string][] = [
+    ...p.cuts.map((c) => ({ k: c.slot, row: [`${mealName(c.slot)} · ${c.label}`, `−${fmt(c.kcal)}kcal`] as [string, string] })),
+    ...p.proteinAdds.map((a) => ({ k: a.slot, row: [`${mealName(a.slot)} · ${a.label} 더하기`, `+${fmt(a.kcal)}kcal`] as [string, string] })),
+  ].sort((x, y) => order(x.k) - order(y.k)).map((x) => x.row);
+  // carry-over in one line when every day gets the same cut ("다음 3일 하루 목표 −200kcal씩")
+  const same = p.carry.length > 1 && p.carry.every((c) => c.kcal === p.carry[0]!.kcal);
+  const later: [string, string][] = same
+    ? [[`다음 ${p.carry.length}일 하루 목표`, `−${fmt(p.carry[0]!.kcal)}kcal씩`]]
+    : p.carry.map((c): [string, string] => [`${c.offset === 1 ? '내일' : `${c.offset}일 뒤`} 하루 목표`, `−${fmt(c.kcal)}kcal`]);
+  if (p.stepsBonus > 0) later.push(['내일 걸음 목표', `+${fmt(p.stepsBonus)}보`]);
   const over = p.over > 100;
+  // say why in plain words: what was eaten on top of the plan, and what the whole day adds up to
+  const causes = overCauses(v);
+  const why = over
+    ? `${causes.length ? `계획에 없던 ${causes.map((c) => `${c.name} ${fmt(c.kcal)}kcal`).join(', ')}를 먹어서, ` : ''}남은 끼니까지 계획대로 먹으면 하루 ${fmt(p.before.total)}kcal로 목표 ${fmt(v.target)}kcal를 넘습니다. 아래처럼 바꾸면 맞춰집니다.`
+    : '남은 끼니에 단백질을 조금 더합니다.';
+  const group = (label: string, rows: [string, string][]) => rows.length > 0 && (
+    <div className="rb-group">
+      <h4>{label}</h4>
+      <ul className="kv-list compact rb-lines">{rows.map(([a, b]) => <li key={a + b}><span>{a}</span><span>{b}</span></li>)}</ul>
+    </div>
+  );
   return (
     <section className="rb-card sq" aria-label="남은 계획 맞추기">
-      <h3 className="rb-t">{over ? `이대로면 오늘 ${fmt(p.over)}kcal 넘칩니다` : `단백질이 ${Math.max(0, env.program.proteinFloor - p.before.protein)}g 모자랍니다`}</h3>
-      <p className="note">{over ? '남은 끼니에서 먼저 줄이고, 그래도 남으면 며칠에 나눠 덜 먹습니다. 단백질은 줄이지 않습니다.' : '남은 끼니에 단백질을 조금 더합니다.'}</p>
-      <ul className="kv-list compact rb-lines">{lines.map(([a, b]) => <li key={a + b}><span>{a}</span><span>{b}</span></li>)}</ul>
+      <h3 className="rb-t">{over ? `오늘 목표보다 ${fmt(p.over)}kcal 많아집니다` : `단백질이 ${Math.max(0, env.program.proteinFloor - p.before.protein)}g 모자랍니다`}</h3>
+      <p className="rb-why">{why}</p>
+      {group('오늘 남은 끼니', today)}
+      {group('앞으로 며칠', later)}
       <div className="card-acts">
         <button type="button" className="btn-primary pill" onClick={() => {
           const undo = applyRebalance(env, p);
