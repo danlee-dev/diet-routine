@@ -47,6 +47,10 @@ describe('21:30 wrap-up', () => {
     expect(r.meals).toEqual(['post', 'dinner']);
   });
 
+  it('says "모두" instead of listing every meal', () => {
+    expect(planReminders(day({ now: H(18) }), null).find((x) => x.kind === 'wrap')!.body).toBe('오늘 끼니 기록이 모두 비어 있습니다. 계획대로 먹었으면 다 먹었어요 한 번으로 끝납니다.');
+  });
+
   it('is not planned once every meal is logged', () => {
     expect(planReminders(day({ now: H(18), eaten: ALL }), null).some((x) => x.kind === 'wrap')).toBe(false);
   });

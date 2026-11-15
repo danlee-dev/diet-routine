@@ -271,7 +271,7 @@ export function planReminders(
   if (open.length) {
     add({
       kind: 'wrap', at: WRAP_AT, title: '오늘 기록 마무리',
-      body: `${open.map((m) => m.name.replace(/\s*\(.*\)$/, '')).join(', ')} 기록이 비어 있습니다. 계획대로 먹었으면 다 먹었어요 한 번으로 끝납니다.`,
+      body: `${open.length === v.meals.length ? '오늘 끼니 기록이 모두' : `${open.map((m) => m.name.replace(/\s*\(.*\)$/, '')).join(', ')} 기록이`} 비어 있습니다. 계획대로 먹었으면 다 먹었어요 한 번으로 끝납니다.`,
       meals: open.map((m) => m.key),
     }, 'day');
   }
