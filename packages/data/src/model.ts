@@ -1,12 +1,14 @@
 // View models and actions on top of the store. Web and iPhone call these same functions,
 // so a check on one device produces exactly the same rows and totals on the other.
 import {
-  addDays, dayCtx, mealCheckId, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
+  addDays, adjustedTarget, applyPlanChanges, dayCtx, effectiveRoutines, effectiveWeek, mealCheckId, sessionFor, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
   programDate, programKey, rolling7, stepsGoal, summary, weightSeries, weightStats,
   type ChecklistRow, type DayCtx, type DayRow, type EatoutSlot, type MealEntryRow, type MealKey, type PlannedMeal,
-  type Program, type RoutineKey, type ScenId, type Summary, type WeightRow, type WorkoutRow,
+  type AdjustedMeal, type DayAdjustment, type PlanOverride, type Program, type RoutineDef, type RoutineKey, type ScenId, type Summary,
+  type WeekType, type WeightRow, type WorkoutRow,
 } from '@diet/core';
 import type { DataStore } from './store';
+import { adjustmentsFor, effectivePlan } from './plan';
 
 export interface Env {
   store: DataStore;
@@ -70,8 +72,18 @@ export interface TodayView {
   day: DayRow;
   scen: ScenId;
   eatout: EatoutSlot;
-  meals: PlannedMeal[];
+  /** today's meals after plan versions and day adjustments */
+  meals: AdjustedMeal[];
   entries: MealEntryRow[];
+  /** plan version in effect today (null = built-in) and today's one-day changes */
+  override: PlanOverride | null;
+  adjustments: DayAdjustment[];
+  /** weekly schedule and routines after edits; today's session after one-day changes */
+  week: { t: WeekType; label: string }[];
+  routines: Record<RoutineKey, RoutineDef>;
+  session: WeekType;
+  /** kcal target after carried-over adjustments */
+  target: number;
   eaten: Set<MealKey>;
   /** slots intentionally skipped (subset of eaten) */
   skipped: Set<MealKey>;
@@ -88,13 +100,17 @@ export function todayView(env: Env): TodayView {
   const day = dayRow(env, ctx.key);
   const scen = day.scenario ?? defaultScen(ctx.dow);
   const eatout = day.eatout_slot ?? 'lunch';
-  const meals = plan({ scen, eatout, wake: day.wake_min });
+  const override = effectivePlan(env, ctx.key);
+  const adjustments = adjustmentsFor(env, ctx.key);
+  const meals = applyPlanChanges(plan({ scen, eatout, wake: day.wake_min }), override, adjustments);
   const entries = entriesFor(env, ctx.key);
   const eaten = new Set<MealKey>();
   const skipped = new Set<MealKey>();
   for (const e of entries) if (e.slot !== 'extra') { eaten.add(e.slot); if (e.kind === 'skip') skipped.add(e.slot); }
   return {
     ctx, nowMin: minutesOf(now), day, scen, eatout, meals, entries, eaten, skipped,
+    override, adjustments, week: effectiveWeek(override), routines: effectiveRoutines(override), session: sessionFor(ctx.dow, override, adjustments),
+    target: adjustedTarget(day.kcal_target ?? env.program.baseKcal, adjustments),
     sum: summary(meals, entries),
     next: meals.find((m) => !eaten.has(m.key)),
     stepsGoal: stepsGoal(ctx.week),

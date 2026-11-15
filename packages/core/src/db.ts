@@ -1,6 +1,7 @@
 // Row shapes of the Supabase tables (snake_case, same as SQL in supabase/migrations).
 // Every synced row carries updated_at (last write wins) and soft-deletes with deleted_at.
 import type { EatoutSlot, MealKey, ScenId } from './data';
+import type { AdjustmentChange, MealOverride, WorkoutOverride } from './rebalance';
 
 export type Slot = MealKey | 'extra';
 
@@ -127,4 +128,27 @@ export interface EventRow extends Synced {
   slot: Slot | null;
   kind: 'dinner_out' | 'drinks' | 'travel' | 'other';
   note: string | null;
+}
+
+/** A version of the plan, effective from a date until a newer one. Meal overrides live in `slots.meals`. */
+export interface PlanRow extends Synced {
+  id: string;
+  effective_from: string; // YYYY-MM-DD
+  slots: { meals?: Partial<Record<MealKey, MealOverride>> };
+  scenarios?: unknown;
+  workout?: WorkoutOverride | null;
+  source: 'default' | 'ai' | 'user';
+  note: string | null;
+  chat_message_id?: string | null;
+}
+
+/** A one-day change (rebalance, coach, or user). */
+export interface PlanAdjustmentRow extends Synced {
+  id: string;
+  date: string;
+  slot: Slot | null;
+  change: AdjustmentChange;
+  reason: string | null;
+  source: 'rebalance' | 'ai' | 'user';
+  chat_message_id?: string | null;
 }

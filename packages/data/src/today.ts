@@ -1,7 +1,7 @@
 // "What matters right now" for the Today screen: one focus, the day's timeline, one recommendation.
 // Shared so the iPhone home, widgets and notifications pick the same thing as the web.
 import {
-  DINNER_CUTOFF, hhmm, ROUTINES, SCEN, schedule, SKIP_ADVICE, todaysRoutine, WEEK, type MealKey, type MealEntryRow, type PlannedMeal,
+  DINNER_CUTOFF, hhmm, SCEN, schedule, SKIP_ADVICE, type MealKey, type MealEntryRow, type PlannedMeal,
   type RoutineKey, type Slot,
 } from '@diet/core';
 import { ordersDue, workoutOn, type Env, type TodayView } from './model';
@@ -15,9 +15,11 @@ export type Focus =
 
 /** Recommended home workout for today, if any. */
 export function workoutPlan(env: Env, v: TodayView): { routine: RoutineKey; at: number | null; done: boolean } | null {
-  const t = WEEK[v.ctx.dow]?.t;
-  const routine = todaysRoutine(v.ctx.dow) ?? (t === 'light' ? 'A' : null);
-  if (!routine || v.scen === 'lateHome' || v.scen === 'rest') return null;
+  const t = v.session;
+  const routine = t === 'A' || t === 'B' ? t : t === 'light' ? 'A' : null;
+  // a rest-day scenario hides the workout, unless the user or coach set today's session on purpose
+  const edited = v.override?.workout?.week?.[String(v.ctx.dow)] != null || v.adjustments.some((x) => x.change.kind === 'workout');
+  if (!routine || v.scen === 'lateHome' || (v.scen === 'rest' && !edited)) return null;
   const sch = schedule(v.day.wake_min);
   return { routine, at: sch?.workout ?? null, done: !!workoutOn(env, v.ctx.key) };
 }
@@ -66,7 +68,7 @@ export function timeline(env: Env, v: TodayView): TimelineItem[] {
   }
   const wp = workoutPlan(env, v);
   if (wp) {
-    const r = ROUTINES[wp.routine];
+    const r = v.routines[wp.routine];
     const item: TimelineItem = {
       id: 'workout', kind: 'workout', at: wp.at, title: r.name, sub: `${r.focus}${wp.at == null ? ' · 간식 1시간 뒤' : ''}`, icon: 'dumbbell',
       state: wp.done ? 'done' : wp.at != null && v.nowMin > wp.at + 120 ? 'late' : 'upcoming', routine: wp.routine,
@@ -135,7 +137,7 @@ export function logFood(env: Env, input: { date: string; slot: Slot; name: strin
 }
 
 /** Daily target: a day override (coach adjustments) or the program base. */
-export const dayTarget = (env: Env, v: TodayView): number => v.day.kcal_target ?? env.program.baseKcal;
+export const dayTarget = (_env: Env, v: TodayView): number => v.target;
 /** What can still be eaten today against the target. */
 export const remainingKcal = (env: Env, v: TodayView): number => dayTarget(env, v) - v.sum.eaten;
 /** How far the rest of the plan would go over (positive) or under (negative) the target. */
