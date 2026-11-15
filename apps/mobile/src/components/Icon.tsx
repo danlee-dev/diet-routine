@@ -11,6 +11,7 @@ const MAP: Record<string, SFSymbol> = {
   'skip-forward': 'forward.end', 'shopping-basket': 'basket', signpost: 'signpost.right', 'calendar-check': 'calendar', activity: 'chart.xyaxis.line',
   x: 'xmark', delete: 'delete.left', timer: 'timer', 'volume-2': 'speaker.wave.2', 'volume-x': 'speaker.slash', cloud: 'icloud', 'cloud-off': 'icloud.slash',
   'arrow-left-right': 'arrow.left.arrow.right', 'clipboard-paste': 'doc.on.clipboard', search: 'magnifyingglass', 'building-2': 'building.2', tv: 'tv',
+  'figure-run': 'figure.run', pause: 'pause.fill', stop: 'stop.fill', share: 'square.and.arrow.up', list: 'list.bullet', map: 'map',
 };
 
 export function Icon({ name, size = 20, color, weight = 'regular' }: { name: string; size?: number; color: ColorValue; weight?: 'regular' | 'medium' | 'semibold' | 'bold' }) {

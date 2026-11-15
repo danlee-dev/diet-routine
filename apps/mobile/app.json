@@ -45,7 +45,19 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "달리기와 걷기의 경로, 거리, 페이스를 기록하려고 위치를 사용합니다.",
+          "locationAlwaysAndWhenInUsePermission": "화면이 잠겨 있어도 달리기 경로를 끊김 없이 기록하려고 위치를 사용합니다.",
+          "locationAlwaysPermission": "화면이 잠겨 있어도 달리기 경로를 끊김 없이 기록하려고 위치를 사용합니다.",
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-task-manager",
+      "expo-maps",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

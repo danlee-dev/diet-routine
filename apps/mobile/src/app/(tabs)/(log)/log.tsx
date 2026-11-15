@@ -2,12 +2,13 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { fmt } from '@diet/core';
-import { setWater, skipMeal, todayView, toggleMeal, workoutPlan } from '@diet/data';
+import { fmt, kmText } from '@diet/core';
+import { runsList, setWater, skipMeal, todayView, toggleMeal, workoutPlan } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { R, squircle, useTheme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { useToast } from '@/components/ui';
+import { useRunSession } from '@/lib/run/hooks';
 
 // The "+" button: every quick log in one place. After logging, go back to Today.
 export default function LogScreen() {
@@ -19,6 +20,8 @@ export default function LogScreen() {
   const wp = workoutPlan(env, v);
   const next = v.next;
   const back = () => router.navigate('/');
+  const run = useRunSession();
+  const lastRun = runsList(env)[0];
   const tiles: { id: string; icon: string; title: string; sub: string; primary?: boolean; run: () => void }[] = [];
   if (v.day.wake_min == null) tiles.push({ id: 'wake', icon: 'sunrise', title: '일어났어요', sub: '끼니 시간 맞추기', primary: true, run: () => router.push('/sheet/time') });
   if (next) {
@@ -29,6 +32,7 @@ export default function LogScreen() {
   tiles.push({ id: 'weight', icon: 'weight', title: '체중', sub: v.weight != null ? `${v.weight.toFixed(1)}kg 고치기` : '아침에 한 번', run: () => router.push({ pathname: '/sheet/weight', params: { i: String(v.ctx.idx) } }) });
   tiles.push({ id: 'water', icon: 'glass-water', title: '물 +1잔', sub: `지금 ${v.day.water_cups}/8잔`, run: () => { const b = v.day.water_cups; setWater(env, v.ctx.key, b + 1); toast(`물 ${Math.min(8, b + 1)}잔`, () => setWater(env, v.ctx.key, b)); } });
   tiles.push({ id: 'steps', icon: 'footprints', title: '걸음', sub: `${fmt(v.day.steps)} / ${fmt(v.stepsGoal)}보`, run: () => router.push('/sheet/steps') });
+  tiles.push({ id: 'run', icon: 'figure-run', title: run.phase === 'recording' ? '달리기 기록 중' : '달리기', sub: run.phase === 'recording' ? `${kmText(run.live?.distance ?? 0)}km · 화면으로 돌아가기` : lastRun ? `지난번 ${kmText(Number(lastRun.distance_m))}km · 경로 기록` : 'GPS로 거리·페이스 기록', primary: run.phase === 'recording', run: () => router.push('/run') });
   if (wp) tiles.push({ id: 'wo', icon: 'play', title: `홈트 ${wp.routine} 시작`, sub: wp.done ? '오늘 완료 · 다시 하기' : '따라하기', run: () => router.push({ pathname: '/workout', params: { routine: wp.routine } }) });
   return (
     <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingTop: 4, paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}>
