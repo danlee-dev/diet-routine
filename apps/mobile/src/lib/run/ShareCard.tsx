@@ -40,7 +40,7 @@ export function ShareCard({ data, look, ref }: { data: CardData; look: CardLook;
   return (
     <View ref={ref} collapsable={false} style={{ width: CARD_W, height: CARD_H, backgroundColor: L.bg, paddingHorizontal: 28, paddingTop: 30, paddingBottom: 28 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={[{ color: L.fg, fontSize: 13, fontWeight: '800', letterSpacing: 0.3 }, shadow]}>감량 루틴</Text>
+        <Text style={[{ color: L.fg, fontSize: 13, fontWeight: '800', letterSpacing: 0.3 }, shadow]}>다루</Text>
         <Text style={[{ color: L.sub, fontSize: 12.5, fontWeight: '600' }, shadow]}>{data.when}</Text>
       </View>
 

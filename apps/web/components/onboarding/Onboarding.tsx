@@ -432,7 +432,7 @@ export function Onboarding({ mode, initial, onExit }: { mode: 'new' | 'redo'; in
               <span className="onb-count">{i + 1} / {steps.length}</span>
             </>
           )
-          : <span className="onb-brand">감량 루틴</span>}
+          : <span className="onb-brand">다루</span>}
         {mode === 'redo' && phase === 'steps' && onExit && <button type="button" className="link-btn quiet onb-cancel" onClick={onExit}>취소</button>}
       </header>
 

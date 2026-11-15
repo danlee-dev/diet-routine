@@ -130,7 +130,7 @@ export async function renderMealsImage(d: CardData, tone: CardTone): Promise<Blo
 
   ctx.fillStyle = muted;
   ctx.font = font(500, 28);
-  ctx.fillText(`감량 루틴 · ${d.dayLabel}`, PAD, H - 90);
+  ctx.fillText(`다루 · ${d.dayLabel}`, PAD, H - 90);
 
   return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('이미지를 만들지 못했습니다'))), 'image/png'));
 }

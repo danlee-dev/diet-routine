@@ -23,7 +23,7 @@ export function Welcome({ onStart }: { onStart: () => void }) {
   const [signIn, setSignIn] = useState(() => !!auth.error);
   return (
     <div className="welcome">
-      <header className="wl-top"><span className="wl-brand">감량 루틴</span></header>
+      <header className="wl-top"><span className="wl-brand">다루</span></header>
       <main className="wl-main">
         <section className="wl-copy">
           <h1 className="wl-title">오늘 할 일만<br />하나씩 보여 드립니다</h1>

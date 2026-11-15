@@ -13,7 +13,7 @@
       "appleTeamId": "45JS5XMNVC",
       "supportsTablet": true,
       "infoPlist": {
-        "CFBundleDisplayName": "감량 루틴",
+        "CFBundleDisplayName": "다루",
         "NSMotionUsageDescription": "걸음과 활동을 정확하게 세려고 동작 정보를 사용합니다."
       },
       "config": {

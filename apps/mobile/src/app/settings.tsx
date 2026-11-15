@@ -171,7 +171,7 @@ export default function SettingsScreen() {
 
       <View style={{ alignItems: 'center', marginTop: 32, gap: 4 }}>
         <Icon name="sun" size={16} color={t.muted} />
-        <Text style={{ color: t.muted, fontSize: 12.5 }}>감량 루틴 {version}</Text>
+        <Text style={{ color: t.muted, fontSize: 12.5 }}>다루 {version}</Text>
       </View>
     </ScrollView>
   );

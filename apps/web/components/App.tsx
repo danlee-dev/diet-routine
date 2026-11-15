@@ -162,7 +162,7 @@ function Shell() {
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand">감량 루틴</div>
+        <div className="brand">다루</div>
         <div className="seg" role="group" aria-label="메뉴">
           {VIEWS.map(([k, label, icon]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => go(k)}><Icon name={icon} size="sm" />{label}</button>)}
         </div>

@@ -213,7 +213,7 @@ export function SettingsSheet() {
   const rules = todayView(env).rules;
   return (
     <div className="settings">
-      <SheetHead eyebrow="감량 루틴" title="설정" />
+      <SheetHead eyebrow="다루" title="설정" />
 
       <section aria-labelledby="s-account">
         <h3 className="s-h" id="s-account">계정과 동기화</h3>
