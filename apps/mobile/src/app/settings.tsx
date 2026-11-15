@@ -163,6 +163,7 @@ export default function SettingsScreen() {
         <Row title="키" value={`${P.heightCm}cm`} />
         <Row title="하루 목표" value={`${fmt(P.baseKcal)}kcal`} />
         <Row title="단백질 최소" value={`${P.proteinFloor}g`} />
+        <Row title="내 정보 다시 입력" sub="답을 고치면 식단, 운동, 장보기를 다시 짭니다" chevron onPress={() => router.push('/answers')} />
       </Section>
 
       <Section title="항상 지키는 것" inset={52}>

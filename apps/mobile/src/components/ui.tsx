@@ -175,7 +175,7 @@ export function Keypad({ onKey }: { onKey: (k: string) => void }) {
           key={k}
           accessibilityLabel={k === 'b' ? '한 자리 지우기' : k === 'c' ? '비우기' : k}
           onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onKey(k); }}
-          style={({ pressed }) => [{ width: '31.8%', height: 54, borderRadius: R.md, backgroundColor: pressed ? t.surface2 : t.surface, alignItems: 'center', justifyContent: 'center' }, squircle]}
+          style={({ pressed }) => [{ flexGrow: 1, flexBasis: '30%', height: 54, borderRadius: R.md, backgroundColor: pressed ? t.surface2 : t.surface, alignItems: 'center', justifyContent: 'center' }, squircle]}
         >
           {k === 'b' ? <Icon name="delete" size={22} color={t.fg2} /> : <Text style={{ fontSize: k === 'c' ? 15 : 26, fontWeight: k === 'c' ? '600' : '300', color: k === 'c' ? t.fg2 : t.fg }}>{k === 'c' ? '비우기' : k}</Text>}
         </Pressable>
