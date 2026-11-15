@@ -755,3 +755,12 @@ kbd{font-family:var(--font-body);font-size:11.5px;padding:2px 6px;border-radius:
   .ruler .nowline{position:absolute;top:24px;height:22px;width:2px;transform:translateX(-50%);background:var(--fg);border-radius:2px}
   .ph .segs{display:none}
 }
+
+/* 식단표 공유 */
+.share-btn{margin-top:14px}
+.share-preview{margin-top:16px;border-radius:22px;overflow:hidden;background:var(--surface);display:grid;place-items:center;min-height:240px}
+@supports (corner-shape:squircle){.share-preview{corner-shape:squircle}}
+.share-preview img{display:block;width:100%;height:auto;max-height:62dvh;object-fit:contain}
+.share-actions{display:flex;gap:8px;margin-top:14px}
+.share-actions>*{flex:1}
+.share-tone{margin-top:14px}
