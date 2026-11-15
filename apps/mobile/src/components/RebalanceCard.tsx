@@ -19,12 +19,28 @@ export function RebalanceCard({ v }: { v: TodayView }) {
   const [dismissed, setDismissed] = useState(() => devicePref.get<boolean>(dkey, false));
   if (!rebalanceWorthShowing(p) || dismissed) return null;
 
-  const lines: [string, string][] = [
-    ...p.cuts.map((c): [string, string] => [`${MEALS[c.slot].name} · ${c.label}`, `−${c.kcal}`]),
-    ...p.proteinAdds.map((a): [string, string] => [`${MEALS[a.slot].name} · ${a.label} 더하기`, `+${a.kcal}`]),
-    ...p.carry.map((c): [string, string] => [c.offset === 1 ? '내일' : `${c.offset}일 뒤`, `−${c.kcal}`]),
+  const today: [string, string][] = [
+    ...p.cuts.map((c): [string, string] => [`${MEALS[c.slot].name} · ${c.label}`, `−${c.kcal}kcal`]),
+    ...p.proteinAdds.map((a): [string, string] => [`${MEALS[a.slot].name} · ${a.label} 더하기`, `+${a.kcal}kcal`]),
   ];
+  // carry-over: one line when every day gets the same cut ("다음 3일 하루 목표 −200kcal씩")
+  const same = p.carry.length > 1 && p.carry.every((c) => c.kcal === p.carry[0]!.kcal);
+  const later: [string, string][] = same
+    ? [[`다음 ${p.carry.length}일 하루 목표`, `−${p.carry[0]!.kcal}kcal씩`]]
+    : p.carry.map((c): [string, string] => [`${c.offset === 1 ? '내일' : `${c.offset}일 뒤`} 하루 목표`, `−${c.kcal}kcal`]);
+  if (p.stepsBonus > 0) later.push(['내일 걸음 목표', `+${fmt(p.stepsBonus)}보`]);
   const title = p.over > 100 ? `이대로면 오늘 ${fmt(p.over)}kcal 넘칩니다` : `단백질이 ${env.program.proteinFloor - p.before.protein}g 모자랍니다`;
+  const group = (label: string, rows: [string, string][]) => rows.length > 0 && (
+    <View style={{ gap: 6 }}>
+      <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '600' }}>{label}</Text>
+      {rows.map(([a, b]) => (
+        <View key={a + b} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+          <Text style={{ flex: 1, color: t.fg2, fontSize: 14.5 }}>{a}</Text>
+          <Text style={{ color: t.fg, fontSize: 14.5, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{b}</Text>
+        </View>
+      ))}
+    </View>
+  );
   return (
     <View style={[{ marginTop: 12, padding: 18, borderRadius: R.lg, borderWidth: 1.5, borderColor: t.fg, gap: 12 }, squircle]}>
       <View style={{ gap: 3 }}>
@@ -33,15 +49,8 @@ export function RebalanceCard({ v }: { v: TodayView }) {
           {p.over > 100 ? '남은 끼니에서 먼저 줄이고, 그래도 남으면 며칠에 나눠 덜 먹습니다. 단백질은 줄이지 않습니다.' : '저녁에 단백질을 조금 더합니다.'}
         </Text>
       </View>
-      <View style={{ gap: 6 }}>
-        {lines.map(([a, b]) => (
-          <View key={a + b} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-            <Text style={{ flex: 1, color: t.fg2, fontSize: 14.5 }}>{a}</Text>
-            <Text style={{ color: t.fg, fontSize: 14.5, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{b}kcal</Text>
-          </View>
-        ))}
-        {p.stepsBonus > 0 && <Text style={{ color: t.fg2, fontSize: 14.5 }}>내일 걸음 +{fmt(p.stepsBonus)}</Text>}
-      </View>
+      {group('오늘 남은 끼니', today)}
+      {group('앞으로 며칠', later)}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
         <Btn small label="이렇게 맞추기" icon="check" onPress={() => { const undo = applyRebalance(env, p); toast('남은 계획을 맞췄습니다', undo); }} />
         <Pressable accessibilityRole="button" hitSlop={8} onPress={() => { devicePref.set(dkey, true); setDismissed(true); }}>
