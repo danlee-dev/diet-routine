@@ -18,7 +18,7 @@ const latestPlanRow = (env: Env, date: string): PlanRow | undefined =>
 export function effectivePlan(env: Env, date: string): PlanOverride | null {
   const r = latestPlanRow(env, date);
   if (!r) return null;
-  return { meals: r.slots?.meals ?? undefined, workout: r.workout ?? undefined };
+  return { meals: r.slots?.meals ?? undefined, workout: r.workout ?? undefined, shop: r.shop ?? undefined, rules: r.rules ?? undefined };
 }
 
 /** When and why the plan in effect on a date last changed. */
@@ -40,6 +40,8 @@ export function savePlan(env: Env, next: PlanOverride, meta: { source: PlanSourc
     effective_from: from,
     slots: { meals: next.meals ?? {} },
     workout: next.workout ?? null,
+    shop: next.shop ?? null,
+    rules: next.rules ?? null,
     source: meta.source,
     note: meta.note ?? null,
     chat_message_id: meta.chatMessageId ?? null,

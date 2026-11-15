@@ -11,6 +11,8 @@ export interface Program {
   /** Base daily target before any adjustment. */
   baseKcal: number;
   proteinFloor: number;
+  /** where the plan's calorie target lands at the end (new users); absent = the owner's built-in band */
+  endWeight?: number;
 }
 
 export const DEFAULT_PROGRAM: Program = {

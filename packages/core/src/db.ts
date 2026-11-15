@@ -1,7 +1,7 @@
 // Row shapes of the Supabase tables (snake_case, same as SQL in supabase/migrations).
 // Every synced row carries updated_at (last write wins) and soft-deletes with deleted_at.
 import type { EatoutSlot, MealKey, ScenId } from './data';
-import type { AdjustmentChange, MealOverride, WorkoutOverride } from './rebalance';
+import type { AdjustmentChange, MealOverride, RuleCard, ShopPlan, WorkoutOverride } from './rebalance';
 
 export type Slot = MealKey | 'extra';
 
@@ -23,6 +23,13 @@ export interface ProfileRow extends Synced {
   /** likes, dislikes, allergies, notes - free form for the AI coach */
   preferences: Record<string, unknown>;
   notification_prefs: Record<string, unknown>;
+  days?: number | null;
+  sex?: 'male' | 'female' | null;
+  birth_year?: number | null;
+  activity?: 'sedentary' | 'light' | 'active' | null;
+  /** onboarding answers as given (for the coach and for re-generating the plan) */
+  onboarding?: Record<string, unknown> | null;
+  onboarded_at?: string | null;
 }
 
 export interface DayRow extends Synced {
@@ -137,6 +144,8 @@ export interface PlanRow extends Synced {
   slots: { meals?: Partial<Record<MealKey, MealOverride>> };
   scenarios?: unknown;
   workout?: WorkoutOverride | null;
+  shop?: ShopPlan | null;
+  rules?: RuleCard[] | null;
   source: 'default' | 'ai' | 'user';
   note: string | null;
   chat_message_id?: string | null;

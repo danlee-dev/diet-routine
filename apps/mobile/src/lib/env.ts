@@ -3,8 +3,7 @@ import 'react-native-url-polyfill/auto';
 import Storage from 'expo-sqlite/kv-store';
 import * as Crypto from 'expo-crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { DEFAULT_PROGRAM } from '@diet/core';
-import { DataStore, type Env } from '@diet/data';
+import { DataStore, programFromStore, type Env } from '@diet/data';
 
 const STORE_KEY = 'dr:store:v1';
 
@@ -19,7 +18,8 @@ export function getEnv(): Promise<Env> {
   ready = (async () => {
     const store = new DataStore(persist);
     await store.init();
-    return { store, program: DEFAULT_PROGRAM, now: () => new Date(), newId: () => Crypto.randomUUID() };
+    // program comes from the profile row (onboarding, or the owner's adopted built-in plan)
+    return { store, get program() { return programFromStore(store); }, now: () => new Date(), newId: () => Crypto.randomUUID() } as Env;
   })();
   return ready;
 }

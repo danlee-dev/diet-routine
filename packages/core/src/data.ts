@@ -248,17 +248,19 @@ export interface Cut {
   protein: number;
   /** a stronger version of another cut; applying it replaces that one */
   replaces?: string;
+  /** the meal must still contain an item whose name includes this (skip cuts on items already edited out) */
+  item?: string;
 }
 
 /** Order = preference when the day runs over: smallest loss of satiety first. */
 export const CUTS: Cut[] = [
-  { id: 'lunch-rice-half', slot: 'lunch', label: '햇반 반 공기만', kcal: 100, protein: 2 },
-  { id: 'snack-nuts', slot: 'snack', label: '하루견과 빼기', kcal: 120, protein: 4 },
-  { id: 'breakfast-tangerine', slot: 'breakfast', label: '귤 3개 → 1개', kcal: 60, protein: 0 },
-  { id: 'post-water', slot: 'post', label: '프로틴을 우유 대신 물에 타기', kcal: 90, protein: 6 },
-  { id: 'lunch-rice-none', slot: 'lunch', label: '햇반 빼기', kcal: 200, protein: 4, replaces: 'lunch-rice-half' },
-  { id: 'dinner-dressing', slot: 'dinner', label: '드레싱 대신 레몬즙', kcal: 30, protein: 0 },
-  { id: 'breakfast-yogurt', slot: 'breakfast', label: '그릭요거트 빼기', kcal: 60, protein: 10 },
+  { id: 'lunch-rice-half', slot: 'lunch', label: '햇반 반 공기만', kcal: 100, protein: 2, item: '햇반' },
+  { id: 'snack-nuts', slot: 'snack', label: '하루견과 빼기', kcal: 120, protein: 4, item: '견과' },
+  { id: 'breakfast-tangerine', slot: 'breakfast', label: '귤 3개 → 1개', kcal: 60, protein: 0, item: '귤' },
+  { id: 'post-water', slot: 'post', label: '프로틴을 우유 대신 물에 타기', kcal: 90, protein: 6, item: '우유' },
+  { id: 'lunch-rice-none', slot: 'lunch', label: '햇반 빼기', kcal: 200, protein: 4, replaces: 'lunch-rice-half', item: '햇반' },
+  { id: 'dinner-dressing', slot: 'dinner', label: '드레싱 대신 레몬즙', kcal: 30, protein: 0, item: '드레싱' },
+  { id: 'breakfast-yogurt', slot: 'breakfast', label: '그릭요거트 빼기', kcal: 60, protein: 10, item: '요거트' },
 ];
 
 /** Protein top-ups when the day falls short of the protein floor. */
