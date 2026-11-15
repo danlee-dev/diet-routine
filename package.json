@@ -1,0 +1,12 @@
+{
+  "name": "diet-routine",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "type": "module",
+  "scripts": {
+    "web": "pnpm --filter web dev",
+    "mobile": "pnpm --filter mobile start",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @diet/core test"
+  }
+}

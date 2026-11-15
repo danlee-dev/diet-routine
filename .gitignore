@@ -1,0 +1,31 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+secrets/
+
+# deps / build
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+out/
+.turbo/
+.vercel
+
+# expo / ios
+.expo/
+apps/mobile/ios/
+apps/mobile/android/
+*.ipa
+*.xcarchive
+
+# misc
+.DS_Store
+*.log
+coverage/
