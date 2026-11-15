@@ -7,6 +7,12 @@
     "web": "pnpm --filter web dev",
     "mobile": "pnpm --filter mobile start",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter @diet/core test"
+    "test": "pnpm --filter @diet/core test",
+    "check:schema": "tsx scripts/check-schema-shape.ts"
+  },
+  "devDependencies": {
+    "@diet/core": "workspace:*",
+    "@diet/data": "workspace:*",
+    "tsx": "^4.23.15"
   }
 }

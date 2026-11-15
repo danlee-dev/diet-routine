@@ -43,8 +43,9 @@ let supa: SupabaseClient | null | undefined;
 export function getSupabase(): SupabaseClient | null {
   if (supa !== undefined) return supa;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  supa = url && key ? createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } }) : null;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  // detectSessionInUrl: the magic link in the sign-in mail lands back here and signs in
+  supa = url && key ? createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }) : null;
   return supa;
 }
 

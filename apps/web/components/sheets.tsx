@@ -314,7 +314,7 @@ export function SyncSheet() {
   return (
     <div>
       <SheetHead eyebrow="동기화" title="로그인" />
-      <p className="note" style={{ marginTop: 8 }}>이메일로 받은 6자리 코드를 넣으면 폰 앱과 같은 기록을 봅니다.</p>
+      <p className="note" style={{ marginTop: 8 }}>이메일로 로그인하면 폰 앱과 같은 기록을 봅니다. 지금 이 기기에 있는 기록은 로그인하면 그대로 올라갑니다.</p>
       {step === 'email' ? (
         <input className="input" style={{ width: '100%', marginTop: 14 }} type="email" inputMode="email" autoComplete="email" placeholder="이메일" value={email} onChange={(e) => setEmail(e.target.value)} />
       ) : (
@@ -330,8 +330,8 @@ export function SyncSheet() {
             setBusy(true);
             try {
               if (step === 'email') {
-                const { error } = await supa.auth.signInWithOtp({ email: email.trim() });
-                if (error) setMsg(error.message); else { setStep('code'); setMsg('메일함에서 6자리 코드를 확인하세요'); }
+                const { error } = await supa.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: location.origin } });
+                if (error) setMsg(error.message); else { setStep('code'); setMsg('메일의 링크를 누르거나, 메일에 있는 6자리 코드를 입력하세요'); }
               } else {
                 const { data, error } = await supa.auth.verifyOtp({ email: email.trim(), token: code, type: 'email' });
                 if (error || !data.user) setMsg(error?.message ?? '코드가 맞지 않습니다');
