@@ -6,6 +6,8 @@ import { useTheme } from '@/lib/theme';
 import { adoptLegacyProfile, profileState, type Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
 import { EnvContext } from '@/lib/hooks';
+import { useReminders } from '@/lib/notifications';
+import { useHealthSync } from '@/lib/health';
 import { ToastProvider } from '@/components/ui';
 import '@/lib/run/session'; // defines the background location task at startup
 
@@ -25,6 +27,8 @@ export default function RootLayout() {
   const scheme = useColorScheme();
   const t = useTheme();
   const [env, setEnv] = useState<Env | null>(null);
+  useReminders(env); // schedule today's reminders and handle notification buttons (cold start included)
+  useHealthSync(env); // Apple Health steps/weight/sleep in, weight/workouts out, once connected in settings
 
   useEffect(() => {
     void getEnv().then((e) => {
