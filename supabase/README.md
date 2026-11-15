@@ -16,6 +16,7 @@ PGPASSWORD=... psql -h aws-0-ap-northeast-2.pooler.supabase.com -p 5432 -U postg
 | 20261115000000_init.sql | 2026-11-15 |
 | 20261115120000_plans_workout.sql | 2026-11-15 |
 | 20261115170000_multi_user_profiles.sql | 2026-11-15 |
+| 20261115190000_ai_usage.sql | 2026-11-15 (server-only writes, not synced) |
 
 After applying: every public table must show RLS on, one owner policy, and membership in `supabase_realtime`.
 

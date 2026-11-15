@@ -4,8 +4,8 @@
 // Run: pnpm dlx tsx scripts/check-schema-shape.ts
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_PROGRAM, generatePlan } from '@diet/core';
-import { completeOnboarding, completeWorkout, DataStore, logFood, setDay, setMealOverride, setRoutineItems, setTodaySession, setWeekDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
+import { DEFAULT_PROGRAM, generatePlan, RunTracker } from '@diet/core';
+import { completeOnboarding, completeWorkout, DataStore, logFood, saveRun, setDay, setMealOverride, setRoutineItems, setTodaySession, setWeekDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
 
 const env = Object.fromEntries(
   readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
@@ -30,6 +30,10 @@ setMealOverride(e, 'snack', { removed: true, note: '간식 빼기' }, 'ai');
 setTodaySession(e, 'A');
 const answers = { sex: 'female', age: 28, heightCm: 162, weightKg: 64, goalWeightKg: 58, weeks: 8, activity: 'light', wakeMin: 420, eatingOut: 'rarely', cooking: 'microwave', allergies: [], dislikes: [], workoutPlace: 'gym', workoutDays: 3, budgetWeek: 80000 } as const;
 completeOnboarding(e, { ...answers, allergies: [], dislikes: [] }, generatePlan({ ...answers, allergies: [], dislikes: [] }));
+const runStart = new Date(2026, 10, 15, 19, 0);
+const tracker = new RunTracker(runStart.getTime());
+for (let i = 0; i <= 400; i++) tracker.ingest({ lat: 37.5665 + i * 0.000027, lng: 126.978, t: runStart.getTime() + i * 1000, acc: 5, speed: 3, alt: 30 + i * 0.02, altAcc: 4 });
+saveRun(e, { id: randomUUID(), kind: 'run', startedAt: runStart, endedAt: new Date(runStart.getTime() + 400_000), summary: tracker.summary(runStart.getTime() + 400_000) });
 await store.flush();
 
 const snap = JSON.parse(snapshot.value!) as { tables: Record<string, Record<string, Record<string, unknown>>> };

@@ -146,7 +146,7 @@ export function logFood(env: Env, input: { date: string; slot: Slot; name: strin
   };
 }
 
-/** Daily target: a day override (coach adjustments) or the program base. */
+/** Daily target: plan target after day adjustments and the share of run kcal given back (see todayView). */
 export const dayTarget = (_env: Env, v: TodayView): number => v.target;
 /** What can still be eaten today against the target. */
 export const remainingKcal = (env: Env, v: TodayView): number => dayTarget(env, v) - v.sum.eaten;

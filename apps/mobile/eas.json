@@ -6,17 +6,19 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "environment": "preview"
+      "environment": "preview",
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
-      "environment": "production"
+      "environment": "production",
+      "channel": "production"
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appName": "감량 루틴 · 개인",
+        "appName": "\uac10\ub7c9 \ub8e8\ud2f4 \u00b7 \uac1c\uc778",
         "language": "ko",
         "sku": "diet-routine-ios",
         "ascAppId": "6835028590"

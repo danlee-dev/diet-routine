@@ -13,7 +13,8 @@
       "appleTeamId": "45JS5XMNVC",
       "supportsTablet": true,
       "infoPlist": {
-        "CFBundleDisplayName": "감량 루틴"
+        "CFBundleDisplayName": "다루",
+        "NSMotionUsageDescription": "걸음과 활동을 정확하게 세려고 동작 정보를 사용합니다."
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -45,7 +46,33 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "달리기와 걷기의 경로, 거리, 페이스를 기록하려고 위치를 사용합니다.",
+          "locationAlwaysAndWhenInUsePermission": "화면이 잠겨 있어도 달리기 경로를 끊김 없이 기록하려고 위치를 사용합니다.",
+          "locationAlwaysPermission": "화면이 잠겨 있어도 달리기 경로를 끊김 없이 기록하려고 위치를 사용합니다.",
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-task-manager",
+      "expo-maps",
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "enableRemoteNotifications": false
+        }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "걸음 수, 체중, 수면을 읽어 오늘 기록을 채우고 기상 시간을 제안합니다.",
+          "NSHealthUpdateUsageDescription": "앱에서 기록한 체중과 홈트를 건강 앱에 저장합니다.",
+          "background": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -61,6 +88,14 @@
         "projectId": "0cb5671f-6c87-4aa8-91a8-ecf42aef4603"
       }
     },
-    "owner": "danleedev"
+    "owner": "danleedev",
+    "updates": {
+      "url": "https://u.expo.dev/0cb5671f-6c87-4aa8-91a8-ecf42aef4603",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }

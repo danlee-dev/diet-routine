@@ -22,7 +22,7 @@ export interface WorkoutOverride {
   /** session per weekday, keyed by Date.getDay() as a string ("0" = Sunday) */
   week?: Partial<Record<string, WeekType>>;
   /** a routine's exercises at base reps (the weekly multiplier still applies); name/focus for e.g. gym routines */
-  routines?: Partial<Record<RoutineKey, { items: RoutineDef['items']; name?: string; focus?: string }>>;
+  routines?: Partial<Record<RoutineKey, { items: RoutineDef['items']; name?: string; focus?: string; amrapMin?: number | null }>>;
 }
 
 export interface RuleCard { icon: string; title: string; desc: string }
@@ -76,6 +76,21 @@ export const withWeekDay = (o: PlanOverride | null | undefined, dow: number, t: 
 export const withRoutineItems = (o: PlanOverride | null | undefined, key: RoutineKey, items: RoutineDef['items']): PlanOverride => ({
   ...o, workout: { ...o?.workout, routines: { ...o?.workout?.routines, [key]: { ...o?.workout?.routines?.[key], items } } },
 });
+/** Replace a routine's exercises and, when given, its format (amrapMin null = fixed rounds). */
+export const withRoutine = (o: PlanOverride | null | undefined, key: RoutineKey, patch: { items: RoutineDef['items']; amrapMin?: number | null }): PlanOverride => ({
+  ...o,
+  workout: {
+    ...o?.workout,
+    routines: {
+      ...o?.workout?.routines,
+      [key]: { ...o?.workout?.routines?.[key], items: patch.items, ...(patch.amrapMin !== undefined ? { amrapMin: patch.amrapMin } : {}) },
+    },
+  },
+});
+
+/** Minutes for a time-boxed routine, or null for fixed rounds. */
+export const amrapOf = (r: Pick<RoutineDef, 'amrapMin'>): number | null => (r.amrapMin && r.amrapMin > 0 ? r.amrapMin : null);
+
 export const withMeal = (o: PlanOverride | null | undefined, key: MealKey, m: MealOverride | null): PlanOverride => {
   const meals = { ...o?.meals };
   if (m) meals[key] = m; else delete meals[key];

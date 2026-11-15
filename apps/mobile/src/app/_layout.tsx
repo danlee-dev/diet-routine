@@ -6,9 +6,12 @@ import { useTheme } from '@/lib/theme';
 import { adoptLegacyProfile, profileState, type Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
 import { EnvContext } from '@/lib/hooks';
+import { useReminders } from '@/lib/notifications';
+import { useHealthSync } from '@/lib/health';
 import { ToastProvider } from '@/components/ui';
 import { Splash } from '@/components/onboarding/Splash';
 import { useOnboarded } from '@/components/onboarding/gate';
+import '@/lib/run/session'; // defines the background location task at startup
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -27,6 +30,8 @@ export default function RootLayout() {
   const t = useTheme();
   const [env, setEnv] = useState<Env | null>(null);
   const onboarded = useOnboarded(env);
+  useReminders(env); // schedule today's reminders and handle notification buttons (cold start included)
+  useHealthSync(env); // Apple Health steps/weight/sleep in, weight/workouts out, once connected in settings
 
   useEffect(() => {
     void getEnv().then((e) => {
@@ -82,6 +87,8 @@ export default function RootLayout() {
             />
             <Stack.Screen name="auth/callback" options={{ animation: 'none' }} />
             <Stack.Screen name="workout" options={{ presentation: 'fullScreenModal', headerShown: false }} />
+            <Stack.Screen name="coach" options={{ presentation: 'modal', headerShown: false }} />
+            <Stack.Screen name="run" options={{ presentation: 'fullScreenModal', headerShown: false }} />
             <Stack.Screen name="answers" options={{ presentation: 'fullScreenModal' }} />
           </Stack>
           <Splash />

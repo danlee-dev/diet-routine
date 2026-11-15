@@ -5,17 +5,27 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
-import { repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
+import { amrapOf, repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
 import { completeWorkout, todayView, toggleMeal } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
 import { Btn, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
+import { AmrapPlayer } from '@/components/AmrapPlayer';
 
 type Phase = 'work' | 'hold' | 'rest' | 'done';
 const C = 2 * Math.PI * 104;
 
+// Fixed rounds with rest, or a time-boxed repeat when the routine has minutes set.
 export default function WorkoutScreen() {
+  const env = useEnv();
+  const params = useLocalSearchParams<{ routine?: string }>();
+  const key: RoutineKey = params.routine === 'B' ? 'B' : 'A';
+  const min = amrapOf(todayView(env).routines[key]);
+  return min ? <AmrapPlayer routine={key} minutes={min} /> : <RoundsPlayer />;
+}
+
+function RoundsPlayer() {
   useKeepAwake();
   const env = useEnv();
   const t = useTheme();

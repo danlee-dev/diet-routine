@@ -117,3 +117,21 @@ describe('rebalance settles', () => {
     expect(rebalanceToday(env, todayView(env)).cuts.map((c) => c.id)).not.toContain('snack-nuts');
   });
 });
+
+describe('time-boxed routine', () => {
+  it('sets items and a 20-minute repeat in one change, and undoes both', async () => {
+    const { setRoutine } = await import('../src');
+    const { amrapOf } = await import('@diet/core');
+    const env = await makeEnv();
+    const items = [{ name: '풀업', n: 5, unit: '회' }, { name: '푸시업', n: 10, unit: '회' }, { name: '스쿼트', n: 15, unit: '회' }];
+    const undo = setRoutine(env, 'A', { items, amrapMin: 20 });
+    let v = todayView(env);
+    expect(v.routines.A.items).toEqual(items);
+    expect(amrapOf(v.routines.A)).toBe(20);
+    expect(env.store.all('plans')).toHaveLength(1);
+    undo();
+    v = todayView(env);
+    expect(amrapOf(v.routines.A)).toBeNull();
+    expect(v.routines.A.items[0]!.name).toBe('푸시업');
+  });
+});

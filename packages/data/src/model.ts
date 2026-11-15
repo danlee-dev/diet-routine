@@ -9,6 +9,7 @@ import {
 } from '@diet/core';
 import type { DataStore } from './store';
 import { adjustmentsFor, effectivePlan } from './plan';
+import { runCredit } from './runCredit';
 
 export interface Env {
   store: DataStore;
@@ -57,8 +58,9 @@ export const entriesFor = (env: Env, date: string): MealEntryRow[] =>
 
 export const weightOn = (env: Env, date: string): number | null => env.store.get<WeightRow>('weights', date)?.kg ?? null;
 
+/** The day's home workout (A/B). Runs and walks also have workout rows but live in runs.ts. */
 export const workoutOn = (env: Env, date: string): WorkoutRow | undefined =>
-  env.store.where<WorkoutRow>('workouts', (w) => w.date === date)[0];
+  env.store.where<WorkoutRow>('workouts', (w) => w.date === date && (w.type === 'home_a' || w.type === 'home_b'))[0];
 
 export const previousWeightFor = (env: Env, i: number): number | null =>
   previousWeight(env.program, env.store.all<WeightRow>('weights'), i);
@@ -113,7 +115,8 @@ export function todayView(env: Env): TodayView {
   return {
     ctx, nowMin: minutesOf(now), day, scen, eatout, meals, entries, eaten, skipped,
     override, adjustments, week: effectiveWeek(override), routines: effectiveRoutines(override), session: sessionFor(ctx.dow, override, adjustments),
-    target: adjustedTarget(day.kcal_target ?? env.program.baseKcal, adjustments),
+    // plan target, day adjustments (carry-over), and half of the day's run kcal given back
+    target: adjustedTarget(day.kcal_target ?? env.program.baseKcal, adjustments) + runCredit(env, ctx.key),
     shop: effectiveShop(override), rules: effectiveRules(override),
     sum: summary(meals, entries),
     next: meals.find((m) => !eaten.has(m.key)),

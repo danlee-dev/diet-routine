@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { repMultiplier, ROUTINES, WEEK, workoutRounds, type RoutineKey } from '@diet/core';
+import { amrapOf, pad, repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
 import { completeWorkout, todayView, toggleMeal } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { devicePref } from '@/lib/client';
@@ -33,7 +33,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
   const [left, setLeft] = useState(0);
   const [total, setTotal] = useState(0);
   const [sound, setSound] = useState(() => devicePref.get('sound', true));
-  const [rounds] = useState(() => (WEEK[v.ctx.dow]!.t === 'light' ? 3 : workoutRounds(v.ctx.week)));
+  const [rounds] = useState(() => (v.session === 'light' ? 3 : workoutRounds(v.ctx.week)));
   const endRef = useRef(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const lock = useRef<WakeLockSentinel | null>(null);
@@ -42,7 +42,13 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
   const onDoneRef = useRef<() => void>(() => {});
 
   const mult = repMultiplier(v.ctx.week);
-  const items = ROUTINES[key].items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
+  const rdef = v.routines[key];
+  // time-boxed format: repeat the list for `min` minutes and count rounds
+  const min = amrapOf(rdef);
+  const [aPhase, setAPhase] = useState<'ready' | 'go' | 'paused' | 'done'>('ready');
+  const [laps, setLaps] = useState(0);
+  const lapsRef = useRef(0);
+  const items = rdef.items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
   const cur = items[idx]!;
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
@@ -108,13 +114,46 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
     }
   };
 
+  const finishAmrap = () => {
+    stop();
+    setAPhase('done');
+    completeWorkout(env, v.ctx.key, key, { rounds: lapsRef.current, startedAt: startedAt.current ?? new Date(), endedAt: new Date() });
+    beep();
+  };
+  // one-minute warning while the clock runs
+  const warned = useRef(false);
+  useEffect(() => {
+    if (min && aPhase === 'go' && left === 60 && !warned.current) { warned.current = true; beep(); }
+  }, [min, aPhase, left, beep]);
+  const mmss = (s: number) => `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+
   const nx = items[idx + 1] ?? (round < rounds ? { name: '쉬는 시간 60초', n: 0, unit: '' } : { name: '마지막 동작입니다', n: 0, unit: '' });
   const postDone = v.eaten.has('post');
   const steps = <div className="wo-steps" aria-hidden="true">{items.map((_, i) => <span key={i} className={i < idx || (i === idx && phase !== 'work') ? 'on' : ''} />)}</div>;
 
   let body: React.ReactNode;
   let foot: React.ReactNode;
-  if (phase === 'work') {
+  if (min) {
+    const clock = aPhase === 'ready' ? min * 60 : left;
+    const list = <ul className="amrap-list">{rdef.items.map((x) => <li key={x.name}><span>{x.name}</span><b className="num">{x.n}{x.unit}</b></li>)}</ul>;
+    if (aPhase === 'done') {
+      body = <><p className="eyebrow">{min}분 끝</p><p className="wo-n">{laps}<small>바퀴</small></p><p className="wo-next">{rdef.items.map((x) => `${x.name} ${x.n * laps}${x.unit}`).join(' · ')}<br />다음에는 {laps + 1}바퀴가 목표입니다.{postDone ? '' : ' 이제 프로틴을 마실 차례입니다.'}</p></>;
+      foot = postDone ? <button type="button" className="btn-primary pill" onClick={onClose}>닫기</button> : (
+        <>
+          <button type="button" className="btn-primary pill" onClick={() => { const r = toggleMeal(env, v.ctx.key, 'post'); onClose(); if (r.added) toast('운동 후 먹음 표시', r.undo); }}><Icon name="check" />프로틴 먹음 표시하고 닫기</button>
+          <div className="row"><button type="button" className="btn-ghost pill" onClick={onClose}>그냥 닫기</button></div>
+        </>
+      );
+    } else {
+      body = <><p className={`wo-clock num${aPhase === 'paused' ? ' is-paused' : ''}`}>{mmss(clock)}</p>{list}{aPhase !== 'ready' && <p className="wo-n">{laps}<small>바퀴</small></p>}</>;
+      foot = aPhase === 'ready'
+        ? <button type="button" className="btn-primary pill" onClick={() => { startedAt.current = new Date(); setAPhase('go'); run(min * 60, finishAmrap); }}><Icon name="play" />{min}분 시작</button>
+        : aPhase === 'go'
+          ? <><button type="button" className="btn-primary pill wo-lap" onClick={() => { lapsRef.current += 1; setLaps(lapsRef.current); try { navigator.vibrate?.(60); } catch { /* not supported */ } }}><Icon name="check" />한 바퀴 끝</button>
+              <div className="row"><button type="button" className="btn-ghost pill" onClick={() => { stop(); setAPhase('paused'); }}>잠깐 멈춤</button><button type="button" className="btn-ghost pill" onClick={finishAmrap}>여기서 끝내기</button></div></>
+          : <div className="row"><button type="button" className="btn-primary pill" style={{ width: 'auto', height: 44, fontSize: 15 }} onClick={() => { setAPhase('go'); run(left, finishAmrap); }}><Icon name="play" />계속</button><button type="button" className="btn-ghost pill" onClick={finishAmrap}>여기서 끝내기</button></div>;
+    }
+  } else if (phase === 'work') {
     body = (
       <>
         {steps}
@@ -147,7 +186,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
       </div>
     );
   } else {
-    body = <><p className="eyebrow">오늘 홈트 끝</p><p className="wo-name">잘했습니다</p><p className="wo-next">{ROUTINES[key].name} {rounds}라운드를 마쳤습니다.{postDone ? '' : ' 이제 프로틴 + 우유를 마실 차례입니다.'}</p></>;
+    body = <><p className="eyebrow">오늘 홈트 끝</p><p className="wo-name">잘했습니다</p><p className="wo-next">{rdef.name} {rounds}라운드를 마쳤습니다.{postDone ? '' : ' 이제 프로틴 + 우유를 마실 차례입니다.'}</p></>;
     foot = postDone ? <button type="button" className="btn-primary pill" onClick={onClose}>닫기</button> : (
       <>
         <button type="button" className="btn-primary pill" onClick={() => { const r = toggleMeal(env, v.ctx.key, 'post'); onClose(); if (r.added) toast('운동 후 먹음 표시', r.undo); }}><Icon name="check" />프로틴 먹음 표시하고 닫기</button>
@@ -161,13 +200,13 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
       {(
         <>
           <div className="wo-head">
-            <span className="t">{ROUTINES[key].name} · {phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</span>
+            <span className="t">{rdef.name} · {min ? `${min}분 동안 반복` : phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</span>
             <div className="acts">
               <button type="button" className="icon-btn" aria-label={sound ? '소리 끄기' : '소리 켜기'} onClick={() => { const s = !sound; setSound(s); devicePref.set('sound', s); }}><Icon name={sound ? 'volume-2' : 'volume-x'} /></button>
               <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="x" /></button>
             </div>
           </div>
-          <div key={`${phase}-${idx}-${round}`} className="wo-body enter">{body}</div>
+          <div key={min ? `amrap-${aPhase}` : `${phase}-${idx}-${round}`} className="wo-body enter">{body}</div>
           <div className="wo-foot">{foot}</div>
         </>
       )}

@@ -12,6 +12,7 @@ import { sendEmailCode, signInWithGoogle, signOut, useAuthUser, verifyEmailCode 
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Row, Section } from '@/components/list';
+import { HealthNotifySection } from '@/components/settings/HealthNotifySection';
 import { useToast } from '@/components/ui';
 
 function GoogleMark({ size = 18 }: { size?: number }) {
@@ -152,7 +153,7 @@ export default function SettingsScreen() {
       {getSupabase() && ready && !user && <SignIn t={t} />}
       <Account t={t} />
 
-      {/* health-notify mounts its notifications + Health section here */}
+      <HealthNotifySection />
 
       <Section title="내 프로그램" footer="숫자는 코치와 대화해서 바꿀 수 있습니다.">
         <Row title="시작일" value={mdw(parseKey(P.startDate))} />
@@ -171,7 +172,7 @@ export default function SettingsScreen() {
 
       <View style={{ alignItems: 'center', marginTop: 32, gap: 4 }}>
         <Icon name="sun" size={16} color={t.muted} />
-        <Text style={{ color: t.muted, fontSize: 12.5 }}>감량 루틴 {version}</Text>
+        <Text style={{ color: t.muted, fontSize: 12.5 }}>다루 {version}</Text>
       </View>
     </ScrollView>
   );

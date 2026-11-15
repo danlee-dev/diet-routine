@@ -3,7 +3,7 @@ import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'reac
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { fmt, hhmm, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
+import { amrapOf, fmt, hhmm, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
 import {
   focusNow, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
   type Focus, type TimelineItem, type TodayView,
@@ -90,7 +90,7 @@ function FocusCard({ f, v, t }: { f: Focus; v: TodayView; t: Theme }) {
     const r = v.routines[f.routine];
     return (
       <View style={box}>{orb}{k(`홈트 시간 · ${hhmm(f.at)}쯤`)}{title(r.name)}
-        <Text style={{ color: t.fg, fontSize: 13.5, fontWeight: '600', marginTop: 6 }}>{r.focus} · {workoutRounds(v.ctx.week)}라운드 · 약 25분</Text>
+        <Text style={{ color: t.fg, fontSize: 13.5, fontWeight: '600', marginTop: 6 }}>{r.focus} · {amrapOf(r) ? `${amrapOf(r)}분 동안 반복` : `${workoutRounds(v.ctx.week)}라운드 · 약 25분`}</Text>
         {acts(<Btn label="따라하기 시작" icon="play" onPress={() => router.push({ pathname: '/workout', params: { routine: f.routine } })} />)}
       </View>
     );

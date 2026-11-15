@@ -1,7 +1,7 @@
 // The editable plan: versions in `plans` (effective from a date) and one-day changes in `plan_adjustments`.
 // Web, iPhone and the AI coach all write through these functions, so an edit on one shows up the same on the other.
 import {
-  addDays, keyOf as toKey, parseKey, programKey, proposalToAdjustments, rebalance, withMeal, withRoutineItems, withWeekDay,
+  addDays, keyOf as toKey, parseKey, programKey, proposalToAdjustments, rebalance, withMeal, withRoutine, withRoutineItems, withWeekDay,
   type DayAdjustment, type Proposal, type MealKey, type MealOverride, type PlanAdjustmentRow, type PlanOverride, type PlanRow,
   type RoutineDef, type RoutineKey, type WeekType,
 } from '@diet/core';
@@ -62,6 +62,10 @@ export const setWeekDay = (env: Env, dow: number, t: WeekType, source: PlanSourc
 
 export const setRoutineItems = (env: Env, key: RoutineKey, items: RoutineDef['items'], source: PlanSource = 'user', note?: string) =>
   savePlan(env, withRoutineItems(current(env), key, items), { source, note: note ?? '홈트 구성을 바꿨습니다' });
+
+/** Exercises and format in one change (one plan save, one undo). amrapMin null = fixed rounds. */
+export const setRoutine = (env: Env, key: RoutineKey, patch: { items: RoutineDef['items']; amrapMin?: number | null }, source: PlanSource = 'user', note?: string) =>
+  savePlan(env, withRoutine(current(env), key, patch), { source, note: note ?? (patch.amrapMin ? `홈트 ${key}를 ${patch.amrapMin}분 동안 반복으로 바꿨습니다` : '홈트 구성을 바꿨습니다') });
 
 export const setMealOverride = (env: Env, key: MealKey, m: MealOverride | null, source: PlanSource = 'user', note?: string) =>
   savePlan(env, withMeal(current(env), key, m), { source, note: note ?? '식단표를 바꿨습니다' });
