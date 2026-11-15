@@ -14,6 +14,9 @@
       "supportsTablet": true,
       "infoPlist": {
         "CFBundleDisplayName": "감량 루틴"
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -47,6 +50,17 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "0cb5671f-6c87-4aa8-91a8-ecf42aef4603"
+      }
+    },
+    "owner": "danleedev"
   }
 }
