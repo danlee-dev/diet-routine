@@ -13,7 +13,8 @@
       "appleTeamId": "45JS5XMNVC",
       "supportsTablet": true,
       "infoPlist": {
-        "CFBundleDisplayName": "감량 루틴"
+        "CFBundleDisplayName": "감량 루틴",
+        "NSMotionUsageDescription": "걸음과 활동을 정확하게 세려고 동작 정보를 사용합니다."
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -87,6 +88,14 @@
         "projectId": "0cb5671f-6c87-4aa8-91a8-ecf42aef4603"
       }
     },
-    "owner": "danleedev"
+    "owner": "danleedev",
+    "updates": {
+      "url": "https://u.expo.dev/0cb5671f-6c87-4aa8-91a8-ecf42aef4603",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }
