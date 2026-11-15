@@ -37,6 +37,8 @@ export interface RunConfig {
   pauseAfterS: number;
   /** speed needed to leave auto-pause */
   resumeSpeed: number;
+  /** ...or this much net ground from where the stop began (slow walkers, noisy speed) */
+  resumeDistance: number;
   /** current pace looks back this much moving time */
   paceWindowS: number;
   /** Kalman process noise floor (m/s) */
@@ -57,12 +59,17 @@ export const RUN_CONFIG: RunConfig = {
   pauseSpeed: 0.5,
   pauseAfterS: 10,
   resumeSpeed: 1.0,
+  resumeDistance: 20,
   paceWindowS: 30,
   kalmanQ: 3,
-  elevHysteresis: 3,
+  elevHysteresis: 4,
   maxAltAccuracy: 15,
   maxGapS: 60,
 };
+
+/** Walking: slower thresholds so a 3 km/h walk is never mistaken for a stop. */
+export const WALK_CONFIG: Partial<RunConfig> = { pauseSpeed: 0.3, resumeSpeed: 0.6 };
+export const runConfigFor = (kind: 'run' | 'walk'): Partial<RunConfig> => (kind === 'walk' ? WALK_CONFIG : {});
 
 const EARTH_R = 6371008.8;
 const rad = (d: number): number => (d * Math.PI) / 180;
@@ -166,7 +173,10 @@ export interface RunSummary {
   /** full km splits plus the last partial one */
   splits: Split[];
   elev_gain_m: number | null;
+  /** every point in order (segments joined) */
   route: LatLng[];
+  /** stretches actually covered; a manual pause or an uncounted gap starts a new one, so no line bridges them */
+  segments: LatLng[][];
 }
 
 /** Recorded input, so a run can be rebuilt after the app restarts or replayed elsewhere. */
@@ -197,7 +207,9 @@ export class RunTracker {
   private hasAlt = false;
   private lastAcc: number | null = null;
   private point: LatLng | null = null;
-  readonly route: LatLng[] = [];
+  /** set by resume: the next fix starts a fresh stretch and carries no time from before the pause */
+  private fresh = false;
+  readonly segments: LatLng[][] = [[]];
 
   constructor(startedAt: number, cfg: Partial<RunConfig> = {}) {
     this.startedAt = startedAt;
@@ -206,6 +218,18 @@ export class RunTracker {
 
   get state(): RunStatus {
     return this.status;
+  }
+
+  get route(): LatLng[] {
+    return this.segments.flat();
+  }
+
+  private addPoint(p: LatLng): void {
+    this.segments[this.segments.length - 1]!.push(p);
+  }
+
+  private breakSegment(): void {
+    if (this.segments[this.segments.length - 1]!.length) this.segments.push([]);
   }
 
   /** Manual pause: time until now still counts (the runner was moving when they pressed). */
@@ -227,7 +251,7 @@ export class RunTracker {
       if (d > 0 && d <= 30) {
         this.pendingDist += d;
         this.anchor = end;
-        this.route.push(end);
+        this.addPoint(end);
       }
     }
     if (this.pendingMs > 0 || this.pendingDist > 0) this.credit(this.pendingMs, this.pendingDist);
@@ -239,6 +263,8 @@ export class RunTracker {
     if (this.status !== 'paused') return;
     this.status = 'moving';
     this.anchor = null; // ground covered while paused does not count
+    this.fresh = true; // nor does the time since the last fix (fixes may all have been rejected while paused)
+    this.breakSegment();
   }
 
   ingest(f: GeoFix): IngestResult {
@@ -247,6 +273,7 @@ export class RunTracker {
     this.lastAcc = acc;
     if (acc > cfg.maxAccuracy) return { accepted: false, reason: 'accuracy', splits: [] };
     if (this.lastT && f.t <= this.lastT) return { accepted: false, reason: 'stale', splits: [] };
+    if (f.t < this.startedAt - 1000) return { accepted: false, reason: 'stale', splits: [] }; // cached fix from before the start
     if (this.lastRaw) {
       const dt = (f.t - this.lastRaw.t) / 1000;
       const jump = Math.max(0, haversine(this.lastRaw, f) - 0.5 * (acc + this.lastRawAcc));
@@ -260,15 +287,26 @@ export class RunTracker {
       }
     }
     this.outliers = 0;
-    const dtMs = this.lastT ? f.t - this.lastT : 0;
-    if (dtMs > cfg.maxGapS * 1000) this.settle(); // close the stretch before the gap at its last real fix
+    const dtMs = this.lastT && !this.fresh ? f.t - this.lastT : 0;
+    this.fresh = false;
+    const longGap = dtMs > cfg.maxGapS * 1000;
+    if (longGap) this.settle(); // close the stretch before the gap at its last real fix
     this.lastRaw = f;
     this.lastRawAcc = acc;
     this.lastT = f.t;
 
     // After a long gap the device speed says nothing about the gap itself: a tunnel keeps a running speed
     // across it, a closed app or a long stop does not (and then the gap becomes auto-pause, uncounted).
-    const v = dtMs > cfg.maxGapS * 1000 && this.point ? haversine(this.point, f) / (dtMs / 1000) : this.speedEstimate(f);
+    const v = longGap && this.point ? haversine(this.point, f) / (dtMs / 1000) : this.speedEstimate(f, acc);
+    let creditMs = dtMs;
+    if (longGap && v < cfg.pauseSpeed && this.status !== 'paused') {
+      // app closed or a long stop: nothing across the gap counts, and the line starts again here
+      this.breakSegment();
+      this.anchor = null;
+      this.pendingMs = 0;
+      this.pendingDist = 0;
+      creditMs = 0;
+    }
     const s = this.kf.step(f, acc, clampN(v, cfg.kalmanQ, 8));
     this.point = s;
     this.recent.push({ t: f.t, lat: s.lat, lng: s.lng });
@@ -284,32 +322,32 @@ export class RunTracker {
 
     if (this.status === 'autoPaused') {
       // anchor stays where the stop began: only net displacement counts, so jitter while stopped adds nothing
-      if (v >= cfg.resumeSpeed) {
+      const d = this.anchor ? haversine(this.anchor, s) : 0;
+      if (v >= cfg.resumeSpeed || d >= cfg.resumeDistance) {
         this.status = 'moving';
-        const d = this.anchor ? haversine(this.anchor, s) : 0;
         this.anchor = s;
-        this.route.push(s);
-        this.credit(dtMs, d);
+        this.addPoint(s);
+        this.credit(creditMs, d);
       }
     } else {
       let d = 0;
       if (!this.anchor) {
         this.anchor = s;
-        this.route.push(s);
+        this.addPoint(s);
       } else {
         const step = haversine(this.anchor, s);
         if (step >= cfg.minStep) {
           d = step;
           this.anchor = s;
-          this.route.push(s);
+          this.addPoint(s);
         }
       }
       if (v >= cfg.pauseSpeed) {
-        this.credit(this.pendingMs + dtMs, this.pendingDist + d);
+        this.credit(this.pendingMs + creditMs, this.pendingDist + d);
         this.pendingMs = 0;
         this.pendingDist = 0;
       } else {
-        this.pendingMs += dtMs;
+        this.pendingMs += creditMs;
         this.pendingDist += d;
         if (this.pendingMs >= cfg.pauseAfterS * 1000) {
           this.status = 'autoPaused';
@@ -325,26 +363,29 @@ export class RunTracker {
     };
   }
 
-  /** Device speed when it has one, else displacement of the smoothed track over the last ~5 s. */
-  private speedEstimate(f: GeoFix): number {
+  /**
+   * Device speed when it has one, else displacement of the smoothed track over the last ~5 s,
+   * less half the accuracy radius so GPS jitter while standing does not read as walking.
+   */
+  private speedEstimate(f: GeoFix, acc: number): number {
     if (f.speed != null && Number.isFinite(f.speed) && f.speed >= 0) return f.speed;
     const ref = this.recent.find((r) => r.t >= f.t - 5000) ?? this.recent[0];
     if (!ref || f.t - ref.t < 1000) return 0;
-    return haversine(ref, f) / ((f.t - ref.t) / 1000);
+    return Math.max(0, haversine(ref, f) - 0.5 * acc) / ((f.t - ref.t) / 1000);
   }
 
   private trackElevation(f: GeoFix): void {
     if (f.alt == null || !Number.isFinite(f.alt)) return;
     if (f.altAcc != null && (!(f.altAcc > 0) || f.altAcc > this.cfg.maxAltAccuracy)) return;
     this.hasAlt = true;
-    this.ema = this.ema == null ? f.alt : this.ema + 0.3 * (f.alt - this.ema);
+    this.ema = this.ema == null ? f.alt : this.ema + 0.1 * (f.alt - this.ema); // ~10 s time constant: hills last minutes, GPS noise does not
     if (this.elevRef == null) this.elevRef = this.ema;
     const rise = this.ema - this.elevRef;
     if (rise >= this.cfg.elevHysteresis) {
       if (this.status === 'moving') this.gain += rise;
       this.elevRef = this.ema;
-    } else if (this.ema < this.elevRef) {
-      this.elevRef = this.ema;
+    } else if (this.elevRef - this.ema >= this.cfg.elevHysteresis) {
+      this.elevRef = this.ema; // symmetric: small dips do not lower the reference, so noise cannot ratchet up gain
     }
   }
 
@@ -413,7 +454,8 @@ export class RunTracker {
       avg_pace_s_per_km: avgPace(this.dist, this.movingMs / 1000),
       splits: this.allSplits(),
       elev_gain_m: this.hasAlt ? Math.round(this.gain * 10) / 10 : null,
-      route: [...this.route],
+      route: this.route,
+      segments: this.segments.filter((g) => g.length).map((g) => [...g]),
     };
   }
 }

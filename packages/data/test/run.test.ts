@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PROGRAM, RunTracker, type GeoFix, type WorkoutRow } from '@diet/core';
-import { completeWorkout, DataStore, dayRow, dayTarget, deleteRun, runById, runCredit, runRoute, runsList, runTotals, saveRun, setDay, setWeight, todayView, workoutOn, type Env } from '../src';
+import { completeWorkout, DataStore, dayRow, dayTarget, deleteRun, runById, runCredit, runRoute, runSegments, runsList, runTotals, saveRun, setDay, setWeight, todayView, workoutOn, type Env } from '../src';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const makeEnv = async () => {
   const store = new DataStore({ load: async () => null, save: async () => {} });
@@ -37,6 +38,7 @@ describe('runs', () => {
     expect(row.polyline).toBeTruthy();
     expect(runRoute(row).length).toBeLessThan(10); // a straight line simplifies to its ends
     expect(row.new_distance_m).toBeGreaterThan(3800);
+    expect(row.new_distance_m).toBeLessThanOrEqual(row.distance_m);
 
     const workouts = env.store.all<WorkoutRow>('workouts');
     expect(workouts).toHaveLength(1);
@@ -113,5 +115,40 @@ describe('runs', () => {
     const start = new Date(2026, 10, 15, 19, 0);
     saveRun(env, { id: 'r', kind: 'run', startedAt: start, endedAt: start, summary: trackRun(start.getTime(), 600, 3) });
     expect(runCredit(env, '2026-11-15')).toBe(0);
+  });
+});
+
+describe('runs: segments and sync order', () => {
+  it('stores each stretch separately and decodes old single-line rows', async () => {
+    const env = await makeEnv();
+    const start = new Date(2026, 10, 15, 19, 0);
+    const a = trackRun(start.getTime(), 120, 3);
+    const b = trackRun(start.getTime() + 200_000, 120, 3, 800);
+    const summary = { ...a, distance_m: a.distance_m + b.distance_m, segments: [...a.segments, ...b.segments], route: [...a.route, ...b.route] };
+    const row = saveRun(env, { id: 'seg', kind: 'run', startedAt: start, endedAt: start, summary });
+    expect(runSegments(row)).toHaveLength(2);
+    expect(row.polyline!.split(' ')).toHaveLength(2);
+    // the 440 m between the stretches is not drawn, so it is not "new ground" either
+    expect(row.new_distance_m).toBeLessThanOrEqual(row.distance_m);
+    expect(runSegments({ polyline: '_p~iF~ps|U_ulLnnqC' })).toHaveLength(1);
+  });
+
+  it('pushes runs before workouts so the run_id foreign key holds', async () => {
+    const env = await makeEnv();
+    const start = new Date(2026, 10, 15, 7, 0);
+    completeWorkout(env, '2026-11-15', 'A', { rounds: 3, startedAt: start, endedAt: start }); // workouts enters the outbox first
+    saveRun(env, { id: 'r', kind: 'run', startedAt: start, endedAt: start, summary: trackRun(start.getTime(), 300, 3) });
+    const order: string[] = [];
+    const client = {
+      from: (t: string) => ({
+        upsert: async () => { order.push(t); return { error: null }; },
+        select: () => ({ gt: () => ({ order: () => ({ limit: async () => ({ data: [], error: null }) }) }) }),
+      }),
+      channel: () => ({ on() { return this; }, subscribe() { return this; } }),
+      removeChannel: async () => {},
+    } as unknown as SupabaseClient;
+    await env.store.attach(client, 'user-1');
+    expect(order.indexOf('runs')).toBeLessThan(order.indexOf('workouts'));
+    expect(env.store.pendingCount()).toBe(0);
   });
 });

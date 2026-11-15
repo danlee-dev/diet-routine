@@ -243,7 +243,9 @@ export class DataStore {
       list.push({ ...row, user_id: uid });
       byTable.set(o.t, list);
     }
-    for (const [t, rows] of byTable) {
+    // parents first, so foreign keys hold inside one push (workouts.run_id -> runs, meal_entries.food_id -> foods)
+    const parentFirst = (t: TableName) => (t === 'runs' || t === 'foods' ? 0 : 1);
+    for (const [t, rows] of [...byTable].sort((a, b) => parentFirst(a[0]) - parentFirst(b[0]))) {
       const { error } = await client.from(t).upsert(rows, { onConflict: CONFLICT[t] });
       if (error) throw new Error(`${t}: ${error.message}`);
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  RunTracker, clockText, closedLoopArea, decodePolyline, encodePolyline, estimateRunSteps, fastestSplit, haversine, kmText,
+  RunTracker, WALK_CONFIG, clockText, closedLoopArea, decodePolyline, encodePolyline, estimateRunSteps, fastestSplit, haversine, kmText,
   metForSpeed, newDistance, paceText, pathLength, projectRoutes, replayRun, runKcal, runKcalCredit, simplifyRoute, splitCue,
   type GeoFix, type LatLng, type RunEvent,
 } from '../src';
@@ -312,5 +312,90 @@ describe('polyline and geometry', () => {
     const line = Array.from({ length: 30 }, (_, i) => at(i * 30, 0));
     expect(closedLoopArea(line)).toBeNull();
     expect(pathLength(sq)).toBeCloseTo(800, 0);
+  });
+});
+
+describe('review regressions', () => {
+  it('does not count paused time when every fix during the pause was rejected', () => {
+    const tr = new RunTracker(T0);
+    const a = straight({ secs: 100, speed: 3 });
+    for (const f of a) tr.ingest(f);
+    tr.pause();
+    for (let i = 1; i <= 55; i++) tr.ingest({ ...at(300, 0), t: a.at(-1)!.t + i * 1000, acc: 35, speed: 0 }); // indoors
+    tr.resume();
+    const b = straight({ from: 300, t0: a.at(-1)!.t + 56_000, secs: 100, speed: 3, seed: 3 });
+    for (const f of b) tr.ingest(f);
+    expect(tr.summary(b.at(-1)!.t).moving_s).toBeLessThanOrEqual(201);
+  });
+
+  it('keeps a slow walk through a 40 s stop with the walking thresholds', () => {
+    const tr = new RunTracker(T0, WALK_CONFIG);
+    const r = rng(5);
+    const fixes: GeoFix[] = [];
+    let x = 0;
+    let t = T0;
+    for (let i = 0; i <= 120; i++) { const v = 0.85 + 0.1 * r(); x += v; fixes.push({ ...at(x, 0), t, acc: 6, speed: v }); t += 1000; }
+    for (let i = 0; i < 40; i++) { fixes.push({ ...at(x + 2 * r(), 2 * r()), t, acc: 8, speed: 0.05 }); t += 1000; }
+    for (let i = 0; i < 1200; i++) { const v = 0.85 + 0.1 * r(); x += v; fixes.push({ ...at(x, 0), t, acc: 6, speed: v }); t += 1000; }
+    for (const f of fixes) tr.ingest(f);
+    const s = tr.summary(t);
+    expect(s.distance_m).toBeGreaterThan(x * 0.97);
+    expect(s.distance_m).toBeLessThan(x * 1.03);
+    expect(s.moving_s).toBeGreaterThan(1300);
+  });
+
+  it('leaves auto-pause on net ground covered even when the speed reads low', () => {
+    const tr = new RunTracker(T0);
+    const a = straight({ secs: 60, speed: 3 });
+    const stop: GeoFix[] = Array.from({ length: 20 }, (_, i) => ({ ...at(180, 0), t: a.at(-1)!.t + (i + 1) * 1000, acc: 5, speed: 0 }));
+    // slow shuffle at 0.8 m/s reported speed: below resumeSpeed, but 40 m of real ground
+    const slow: GeoFix[] = Array.from({ length: 50 }, (_, i) => ({ ...at(180 + 0.8 * (i + 1), 0), t: stop.at(-1)!.t + (i + 1) * 1000, acc: 5, speed: 0.8 }));
+    for (const f of [...a, ...stop, ...slow]) tr.ingest(f);
+    expect(tr.state).toBe('moving');
+  });
+
+  it('starts a new segment after a manual pause and after an uncounted gap, not across a tunnel', () => {
+    const paused = new RunTracker(T0);
+    const a = straight({ secs: 60, speed: 3 });
+    for (const f of a) paused.ingest(f);
+    paused.pause();
+    for (const f of straight({ from: 180, t0: a.at(-1)!.t + 1000, secs: 60, speed: 1.3, seed: 2 })) paused.ingest(f);
+    paused.resume();
+    for (const f of straight({ from: 260, t0: a.at(-1)!.t + 62_000, secs: 60, speed: 3, seed: 4 })) paused.ingest(f);
+    expect(paused.summary(a.at(-1)!.t + 122_000).segments).toHaveLength(2);
+
+    const closed = new RunTracker(T0);
+    for (const f of a) closed.ingest(f);
+    for (const f of straight({ from: 400, t0: a.at(-1)!.t + 20 * 60_000, secs: 60, speed: 3, seed: 4 })) closed.ingest(f);
+    expect(closed.summary(a.at(-1)!.t + 21 * 60_000).segments).toHaveLength(2);
+
+    const tunnel = new RunTracker(T0);
+    for (const f of a) tunnel.ingest(f);
+    for (const f of straight({ from: 450, t0: a.at(-1)!.t + 90_000, secs: 60, speed: 3, seed: 4 })) tunnel.ingest(f);
+    expect(tunnel.summary(a.at(-1)!.t + 150_000).segments).toHaveLength(1);
+  });
+
+  it('drops a cached fix from before the start', () => {
+    const tr = new RunTracker(T0);
+    expect(tr.ingest({ ...at(-300, 0), t: T0 - 120_000, acc: 5, speed: 0 }).reason).toBe('stale');
+  });
+
+  it('auto-pauses while standing even without device speed', () => {
+    const tr = new RunTracker(T0);
+    const a = straight({ secs: 100, speed: 3, withSpeed: false });
+    const r = rng(8);
+    const stand: GeoFix[] = Array.from({ length: 120 }, (_, i) => ({ ...at(300 + 3 * r(), 3 * r()), t: a.at(-1)!.t + (i + 1) * 1000, acc: 8, speed: -1 }));
+    for (const f of [...a, ...stand]) tr.ingest(f);
+    const s = tr.summary(stand.at(-1)!.t);
+    expect(s.moving_s).toBeLessThanOrEqual(115);
+    expect(s.distance_m).toBeLessThan(312);
+  });
+
+  it('does not ratchet up elevation from +-4 m noise on flat ground', () => {
+    const r = rng(13);
+    const tr = new RunTracker(T0);
+    const f = straight({ secs: 1700, speed: 3, alt: () => 20 + 4 * r() });
+    for (const x of f) tr.ingest(x);
+    expect(tr.summary(f.at(-1)!.t).elev_gain_m!).toBeLessThan(15);
   });
 });

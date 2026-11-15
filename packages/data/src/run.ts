@@ -2,7 +2,7 @@
 // lists, totals and "my map". Web and iPhone call these, so a run saved on the phone shows the same
 // distance, kcal and budget change on the desktop.
 import {
-  closedLoopArea, decodePolyline, encodePolyline, estimateRunSteps, keyOf, newDistance, routeBBox, runKcal, runKcalCredit, simplifyRoute,
+  closedLoopArea, decodePolyline, encodePolyline, estimateRunSteps, keyOf, newDistance, pathLength, routeBBox, runKcal, runKcalCredit, simplifyRoute,
   stableId, RUN_CREDIT_RATIO, type LatLng, type ProfileRow, type RunRow, type RunSummary, type WeightRow, type WorkoutRow,
 } from '@diet/core';
 import { dayRow, setDay, type Env, type Undo } from './model';
@@ -17,7 +17,15 @@ export const runById = (env: Env, id: string): RunRow | undefined => env.store.g
 
 export const runsOn = (env: Env, date: string): RunRow[] => runsList(env).filter((r) => runDate(r) === date);
 
-export const runRoute = (r: Pick<RunRow, 'polyline'>): LatLng[] => (r.polyline ? decodePolyline(r.polyline) : []);
+/**
+ * Stored route: one encoded polyline per stretch, joined by a space (outside the polyline alphabet,
+ * so rows with a single line decode the same). A pause or an uncounted gap starts a new stretch.
+ */
+export const runSegments = (r: Pick<RunRow, 'polyline'>): LatLng[][] =>
+  r.polyline ? r.polyline.split(' ').filter(Boolean).map((p) => decodePolyline(p)).filter((g) => g.length) : [];
+
+/** Every point in order (segments joined). */
+export const runRoute = (r: Pick<RunRow, 'polyline'>): LatLng[] => runSegments(r).flat();
 
 /** The workout row that mirrors a run has an id derived from the run, so saving twice never duplicates it. */
 export const runWorkoutId = (runId: string): string => stableId(`run-workout:${runId}`);
@@ -62,8 +70,13 @@ export function saveRun(env: Env, input: SaveRunInput): RunRow {
   const date = keyOf(input.startedAt);
   const prev = runById(env, input.id);
   const s = input.summary;
-  const route = simplifyRoute(s.route, 2);
-  const earlier = runsList(env).filter((r) => r.id !== input.id && r.started_at < input.startedAt.toISOString()).map(runRoute);
+  const segments = (s.segments?.length ? s.segments : [s.route]).map((g) => simplifyRoute(g, 2)).filter((g) => g.length);
+  const route = segments.flat();
+  const earlier = runsList(env).filter((r) => r.id !== input.id && r.started_at < input.startedAt.toISOString()).flatMap(runSegments);
+  // new ground is measured on the drawn lines, then scaled to the tracked distance (the two differ slightly)
+  const drawn = segments.reduce((a, g) => a + pathLength(g), 0);
+  const fresh = segments.reduce((a, g) => a + newDistance(g, earlier), 0);
+  const freshShare = drawn > 0 ? Math.min(1, fresh / drawn) : null;
   const row: RunRow = {
     id: input.id,
     kind: input.kind,
@@ -77,9 +90,9 @@ export function saveRun(env: Env, input: SaveRunInput): RunRow {
     elev_gain_m: s.elev_gain_m,
     avg_cadence: null,
     splits: s.splits,
-    polyline: route.length ? encodePolyline(route) : null,
-    bbox: routeBBox([route]),
-    new_distance_m: route.length > 1 ? newDistance(route, earlier) : null,
+    polyline: segments.length ? segments.map((g) => encodePolyline(g)).join(' ') : null,
+    bbox: routeBBox(segments),
+    new_distance_m: freshShare == null ? null : Math.round(freshShare * s.distance_m),
     closed_area_m2: closedLoopArea(route),
     health_uuid: prev?.health_uuid ?? null,
   };
