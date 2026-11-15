@@ -1,9 +1,9 @@
 'use client';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { SCEN, SCEN_ORDER, type RoutineKey } from '@diet/core';
-import { setDay, setWater, skipMeal, todayView, toggleMeal, workoutPlan, type Env } from '@diet/data';
-import { devicePref, getEnv, startAuth } from '@/lib/client';
-import { EnvContext, useAuth, useEnv } from '@/lib/hooks';
+import { adoptLegacyProfile, profileState, setDay, setWater, skipMeal, todayView, toggleMeal, workoutPlan, type Env } from '@diet/data';
+import { devicePref, getEnv, getSupabase, startAuth } from '@/lib/client';
+import { EnvContext, FlowContext, useAuth, useEnv, useFlow } from '@/lib/hooks';
 import { Icon } from './Icon';
 import { OverlayProvider, useOverlay } from './ui';
 import { ImportSheet, StepsSheet, TimeSheet, WeightSheet } from './sheets';
@@ -14,6 +14,9 @@ import { Plan, PLAN_TABS, type PlanTab } from './views/Plan';
 import { WorkoutPlayer } from './WorkoutPlayer';
 import { CommandPalette, type Command } from './CommandPalette';
 import { AccountButton, SettingsSheet } from './Settings';
+import { Welcome } from './onboarding/Welcome';
+import { Onboarding } from './onboarding/Onboarding';
+import { DEFAULT_DRAFT, draftFromProfile } from './onboarding/answers';
 
 type View = 'today' | 'records' | 'plan';
 const VIEWS: [View, string, string][] = [['today', '오늘', 'calendar-check'], ['records', '기록', 'activity'], ['plan', '계획', 'signpost']];
@@ -37,11 +40,59 @@ export function App() {
   if (!mounted || !env) return <div className="app" aria-busy="true" />;
   return (
     <EnvContext.Provider value={env}>
-      <OverlayProvider>
-        <Shell />
-      </OverlayProvider>
+      <FlowProvider>
+        <OverlayProvider>
+          <Gate />
+        </OverlayProvider>
+      </FlowProvider>
     </EnvContext.Provider>
   );
+}
+
+function FlowProvider({ children }: { children: React.ReactNode }) {
+  const [redo, setRedo] = useState(false);
+  const value = useMemo(() => ({ redo, redoOnboarding: () => setRedo(true), endRedo: () => setRedo(false) }), [redo]);
+  return <FlowContext.Provider value={value}>{children}</FlowContext.Provider>;
+}
+
+/**
+ * Who sees what. A profile goes to the app. No profile: wait for a signed-in account's first pull (it may bring
+ * a profile, or the owner's records from before onboarding, which become their profile), otherwise welcome and onboarding.
+ */
+function Gate() {
+  const env = useEnv();
+  const auth = useAuth();
+  const [flow, setFlow] = useState<'welcome' | 'onboarding'>('welcome');
+  const { redo, endRedo } = useFlow();
+  const state = profileState(env.store);
+  useEffect(() => { if (state === 'legacy') adoptLegacyProfile(env); }, [state, env]);
+
+  if (state === 'ready') {
+    if (redo) return <Onboarding mode="redo" initial={draftFromProfile(env)} onExit={endRedo} />;
+    return <Shell />;
+  }
+  if (state === 'legacy' || (getSupabase() && !auth.ready)) return <div className="app" aria-busy="true" />;
+  const st = env.store.syncState;
+  if (auth.user && (st === 'local' || st === 'syncing')) {
+    return <div className="gate-wait" role="status"><p className="eyebrow">{auth.user.email}</p><p className="gate-t">기록을 가져오고 있습니다</p></div>;
+  }
+  if (auth.user && (st === 'error' || st === 'offline') && flow !== 'onboarding') {
+    const supa = getSupabase()!;
+    return (
+      <div className="gate-wait" role="alert">
+        <p className="eyebrow">{auth.user.email}</p>
+        <p className="gate-t">계정의 기록을 가져오지 못했습니다</p>
+        <p className="s-lead">{env.store.lastError ?? '연결을 확인하고 다시 시도해 주세요.'}</p>
+        <div className="wl-acts">
+          <button type="button" className="btn-primary pill" onClick={() => void env.store.attach(supa, auth.user!.id)}>다시 시도</button>
+          <button type="button" className="btn-ghost pill" onClick={() => setFlow('onboarding')}>새로 시작하기</button>
+        </div>
+      </div>
+    );
+  }
+  // signed in with nothing on the account: straight to the questions
+  if (flow === 'onboarding' || auth.user) return <Onboarding mode="new" initial={DEFAULT_DRAFT} onExit={auth.user ? undefined : () => setFlow('welcome')} />;
+  return <Welcome onStart={() => setFlow('onboarding')} />;
 }
 
 function Shell() {

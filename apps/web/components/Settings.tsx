@@ -2,9 +2,9 @@
 // Settings: account and sync, the program numbers, the rules that never change, legacy import and the app version.
 // Opened from the person button (top bar on wide screens, page title row on the phone) and from ⌘K.
 import { useRef, useState } from 'react';
-import { addDays, dateLabel, fmt, KEEP, parseKey } from '@diet/core';
-import type { SyncState } from '@diet/data';
-import { useAuth, useEnv } from '@/lib/hooks';
+import { addDays, dateLabel, fmt, parseKey } from '@diet/core';
+import { profileOf, todayView, type SyncState } from '@diet/data';
+import { useAuth, useEnv, useFlow } from '@/lib/hooks';
 import { APP_VERSION, authStore, getSupabase, signInWithGoogle, signOut } from '@/lib/client';
 import { Icon } from './Icon';
 import { SheetHead, useOverlay } from './ui';
@@ -113,11 +113,41 @@ function EmailSignIn() {
   );
 }
 
-function Account() {
-  const env = useEnv();
+/** Google first, email code as the quieter fallback. Used in Settings and on the welcome screen. */
+export function SignInOptions() {
   const auth = useAuth();
   const [emailOpen, setEmailOpen] = useState(false);
   const [msg, setMsg] = useState('');
+  return (
+    <>
+      {auth.error && (
+        <p className="s-error" role="alert">
+          로그인하지 못했습니다. 다시 시도해 주세요.<span>{auth.error}</span>
+        </p>
+      )}
+      <button
+        type="button"
+        className="g-btn pill"
+        onClick={async () => {
+          authStore.clearError();
+          setMsg('Google로 이동합니다');
+          const err = await signInWithGoogle();
+          if (err) setMsg(err);
+        }}
+      >
+        <GoogleMark />Google로 계속하기
+      </button>
+      {msg && <p className="form-msg" role="status">{msg}</p>}
+      {emailOpen
+        ? <EmailSignIn />
+        : <button type="button" className="link-btn s-quiet" onClick={() => { authStore.clearError(); setMsg(''); setEmailOpen(true); }}><Icon name="mail" size="sm" />이메일 코드로 로그인</button>}
+    </>
+  );
+}
+
+function Account() {
+  const env = useEnv();
+  const auth = useAuth();
   const supa = getSupabase();
 
   if (!supa) {
@@ -151,27 +181,7 @@ function Account() {
   return (
     <>
       <p className="s-lead">로그인하면 웹과 아이폰이 같은 기록을 봅니다. 지금 이 기기에 있는 기록은 로그인하면 그대로 올라갑니다.</p>
-      {auth.error && (
-        <p className="s-error" role="alert">
-          로그인하지 못했습니다. 다시 시도해 주세요.<span>{auth.error}</span>
-        </p>
-      )}
-      <button
-        type="button"
-        className="g-btn pill"
-        onClick={async () => {
-          authStore.clearError();
-          setMsg('Google로 이동합니다');
-          const err = await signInWithGoogle();
-          if (err) setMsg(err);
-        }}
-      >
-        <GoogleMark />Google로 계속하기
-      </button>
-      {msg && <p className="form-msg" role="status">{msg}</p>}
-      {emailOpen
-        ? <EmailSignIn />
-        : <button type="button" className="link-btn s-quiet" onClick={() => { authStore.clearError(); setMsg(''); setEmailOpen(true); }}><Icon name="mail" size="sm" />이메일 코드로 로그인</button>}
+      <SignInOptions />
     </>
   );
 }
@@ -179,10 +189,12 @@ function Account() {
 function Program() {
   const env = useEnv();
   const P = env.program;
+  const name = profileOf(env.store)?.display_name;
   const start = parseKey(P.startDate);
   const end = addDays(start, P.days - 1);
   return (
     <dl className="s-rows">
+      {name && <div><dt>이름</dt><dd className="ellip">{name}</dd></div>}
       <div><dt>시작일</dt><dd>{start.getFullYear()}년 {dateLabel(start)}</dd></div>
       <div><dt>기간</dt><dd>{P.days}일 · {dateLabel(end)}까지</dd></div>
       <div><dt>시작 체중</dt><dd className="num">{P.startWeight.toFixed(1)}kg</dd></div>
@@ -195,7 +207,10 @@ function Program() {
 }
 
 export function SettingsSheet() {
-  const { open } = useOverlay();
+  const { open, close } = useOverlay();
+  const env = useEnv();
+  const { redoOnboarding } = useFlow();
+  const rules = todayView(env).rules;
   return (
     <div className="settings">
       <SheetHead eyebrow="감량 루틴" title="설정" />
@@ -206,14 +221,18 @@ export function SettingsSheet() {
       </section>
 
       <section aria-labelledby="s-program">
-        <h3 className="s-h" id="s-program">프로그램</h3>
+        <h3 className="s-h" id="s-program">내 프로그램</h3>
         <Program />
+        <button type="button" className="btn-ghost pill" onClick={() => { close(); redoOnboarding(); }}>
+          <Icon name="rotate-ccw" size="sm" />내 정보 다시 입력
+        </button>
+        <p className="note" style={{ marginTop: 8 }}>답을 바꾸면 식단, 운동, 장보기 목록을 다시 만듭니다. 지금까지의 기록은 그대로 둡니다.</p>
       </section>
 
       <section aria-labelledby="s-keep">
         <h3 className="s-h" id="s-keep">항상 지키는 것</h3>
         <ul className="s-keep">
-          {KEEP.map((k) => (
+          {rules.map((k) => (
             <li key={k.title}><Icon name={k.icon} /><div><b>{k.title}</b><span>{k.desc}</span></div></li>
           ))}
         </ul>

@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { DOW, fmt, hhmm, repMultiplier, schedule, TARGETS, WEEK_LABEL, workoutRounds, type RoutineDef, type RoutineKey } from '@diet/core';
+import { DOW, fmt, hhmm, repMultiplier, schedule, weekGoalText, WEEK_LABEL, workoutRounds, type RoutineDef, type RoutineKey } from '@diet/core';
 import { todayView, workoutOn } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { devicePref } from '@/lib/client';
@@ -33,7 +33,10 @@ export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
   const pick = (k: RoutineKey) => { setRt(k); devicePref.set('routine', k); };
   const when = sch?.workout ? <p className="card-meta">추천 시간 {hhmm(sch.workout)}쯤 · 간식 1시간 뒤, 저녁 전</p> : null;
   const doneTag = doneName ? <span className="done-tag"><Icon name="check" size="sm" />오늘 {doneName} 완료</span> : null;
-  const tIdx = Math.min(week, 4);
+  // weekly weight goals for this user's program: start, then one row per week
+  const weeks = Math.ceil(env.program.days / 7);
+  const goals = Array.from({ length: weeks + 1 }, (_, i) => ({ label: i === 0 ? '시작' : `${i}주차`, text: weekGoalText(env.program, i) }));
+  const tIdx = Math.min(week, weeks);
 
   let card: React.ReactNode;
   if (t === 'A' || t === 'B') {
@@ -100,8 +103,9 @@ export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
         <section>
           <h2 className="section-title">루틴 보기</h2>
           <div className="seg" role="group" aria-label="루틴 선택">
-            <button type="button" aria-pressed={rt === 'A'} onClick={() => pick('A')}>A · 상체</button>
-            <button type="button" aria-pressed={rt === 'B'} onClick={() => pick('B')}>B · 하체</button>
+            {(['A', 'B'] as const).map((k) => (
+              <button key={k} type="button" aria-pressed={rt === k} onClick={() => pick(k)}>{k} · {R[k].focus.split('·')[0]!.trim()}</button>
+            ))}
           </div>
           <RoutineList r={R[rt]} mult={mult} />
           <div className="row" style={{ marginTop: 12 }}>
@@ -126,7 +130,7 @@ export function Workout({ onStart }: { onStart: (k: RoutineKey) => void }) {
         <section>
           <h2 className="section-title">체중 목표</h2>
           <ul className="kv-list">
-            {TARGETS.map((r, i) => (
+            {goals.map((r, i) => (
               <li key={r.label} className={i === tIdx ? 'is-now' : undefined}><span>{r.label}{i === tIdx ? ' · 이번 주' : ''}</span><span className="num">{r.text}</span></li>
             ))}
           </ul>

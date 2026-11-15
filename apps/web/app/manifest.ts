@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: '6kg 감량 루틴',
+    name: '감량 루틴',
     short_name: '감량 루틴',
     start_url: '/',
     display: 'standalone',

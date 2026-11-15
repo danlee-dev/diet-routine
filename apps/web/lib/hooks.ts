@@ -5,6 +5,13 @@ import { authStore, type AuthState } from './client';
 
 export const EnvContext = createContext<Env | null>(null);
 
+/**
+ * App-level flows reachable from deep inside the shell (Settings > 내 정보 다시 입력). Provided above the overlay
+ * layer, because sheets render there and not inside the shell.
+ */
+export const FlowContext = createContext<{ redo: boolean; redoOnboarding: () => void; endRedo: () => void }>({ redo: false, redoOnboarding: () => {}, endRedo: () => {} });
+export const useFlow = () => useContext(FlowContext);
+
 const SERVER_AUTH: AuthState = { ready: false, user: null, error: null };
 /** Signed-in user, restore progress and the last sign-in error. */
 export function useAuth(): AuthState {

@@ -9,12 +9,17 @@ import { Icon } from '../Icon';
 import { useOverlay } from '../ui';
 import { MealEditSheet } from '../PlanSheets';
 
+/** The note core's plan generator puts on every meal it makes (packages/core/src/onboarding.ts). */
+const GENERATED_NOTE = '내게 맞춘 기본 식단';
+
 export function Meals() {
   const env = useEnv();
   const { open, toast } = useOverlay();
   const v = todayView(env);
   const meta = planMeta(env, v.ctx.key);
   const who = meta?.source === 'ai' ? '코치가 바꿈' : '내가 바꿈';
+  // a plan made from onboarding answers is not a change; say what it is instead of "내가 바꿈"
+  const generated = !!meta?.note && /만든 (내 )?계획$/.test(meta.note);
   const total = v.meals.reduce((s, m) => s + m.kcal, 0);
   const protein = v.meals.reduce((s, m) => s + m.protein, 0);
   const diff = total - v.target;
@@ -31,12 +36,14 @@ export function Meals() {
           단백질 {protein}g · 최소 {env.program.proteinFloor}g
           {diff > 0 ? ` · 목표보다 ${fmt(diff)}kcal 많습니다` : diff < -50 ? ` · 목표보다 ${fmt(-diff)}kcal 적습니다` : ''}
         </p>
-        {meta && <p className="edit-meta">{md(parseKey(meta.from))} {who}{meta.note ? ` · ${meta.note}` : ''}</p>}
+        {meta && <p className="edit-meta">{md(parseKey(meta.from))} {generated ? meta.note : `${who}${meta.note ? ` · ${meta.note}` : ''}`}</p>}
       </section>
 
       <ul className="meal-table">
         {v.meals.map((m) => {
-          const marks = [m.edited ? who : null, m.changes?.length ? `오늘만: ${m.changes.join(', ')}` : null].filter(Boolean);
+          // meals exactly as the generator made them carry its note; only later edits count as changes
+          const changed = m.edited && m.edited !== GENERATED_NOTE;
+          const marks = [changed ? who : null, m.changes?.length ? `오늘만: ${m.changes.join(', ')}` : null].filter(Boolean);
           return (
             <li key={m.key}>
               <button type="button" className="mt-row" aria-label={`${m.name} ${fmt(m.kcal)}kcal. 바꾸기`} onClick={() => open(<MealEditSheet mealKey={m.key} />)}>

@@ -1,5 +1,5 @@
 'use client';
-import { addDays, DOW, md, mdw, parseKey, programDate, sgn, TARGET_BAND, TARGETS, type WeightPoint } from '@diet/core';
+import { addDays, bandFor, DOW, md, mdw, parseKey, programDate, sgn, weekGoalText, type WeightPoint } from '@diet/core';
 import { dayRecord, streaks, todayView, weightData } from '@diet/data';
 import { useEnv, usePhone } from '@/lib/hooks';
 import { Icon } from '../Icon';
@@ -14,17 +14,24 @@ function Chart({ series, avg, dayIdx, days }: { series: WeightPoint[]; avg: Weig
   const env = useEnv();
   const phone = usePhone();
   const W = 600, H = phone ? 300 : 250, pl = phone ? 44 : 34, pr = 10, pt = 14, pb = phone ? 36 : 28, xmax = days - 1;
-  let ymin = 69, ymax = 77;
-  for (const p of series) { ymin = Math.min(ymin, Math.floor(p.w - 0.5)); ymax = Math.max(ymax, Math.ceil(p.w + 0.5)); }
+  // the user's own target band; the y range covers the band and every weigh-in
+  const tb = bandFor(env.program);
+  const ys = [...tb.upper.map((p) => p[1]), ...tb.lower.map((p) => p[1]), ...series.map((p) => p.w)];
+  const ymin = Math.floor(Math.min(...ys) - 0.5), ymax = Math.ceil(Math.max(...ys) + 0.5);
   const x = (i: number) => pl + ((W - pl - pr) * i) / xmax;
   const y = (v: number) => pt + ((H - pt - pb) * (ymax - v)) / (ymax - ymin);
   const pts = (arr: [number, number][]) => arr.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`);
-  const band = `M${pts(TARGET_BAND.upper).join(' L')} L${pts([...TARGET_BAND.lower].reverse()).join(' L')} Z`;
+  const band = `M${pts(tb.upper).join(' L')} L${pts([...tb.lower].reverse()).join(' L')} Z`;
+  // date ticks: weekly for a month-long program, every two or four weeks for longer ones
+  const tickStep = days <= 35 ? 7 : days <= 63 ? 14 : 28;
+  const ticks: number[] = [];
+  for (let i = 0; i <= xmax; i += tickStep) ticks.push(i);
   const grid: number[] = [];
-  for (let v = Math.ceil(ymin); v <= ymax; v++) if (v % 2 === 0) grid.push(v);
+  const gridStep = ymax - ymin > 14 ? 4 : 2;
+  for (let v = Math.ceil(ymin); v <= ymax; v++) if (v % gridStep === 0) grid.push(v);
   const r = (phone ? 6 : 3.5) * (series.length > 20 ? 0.75 : 1);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="30일 체중 그래프">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${days}일 체중 그래프`}>
       <path className="band" d={band} />
       {grid.map((v) => (
         <g key={v}>
@@ -32,7 +39,7 @@ function Chart({ series, avg, dayIdx, days }: { series: WeightPoint[]; avg: Weig
           <text className="lb" x={pl - 8} y={(y(v) + 5).toFixed(1)} textAnchor="end">{v}</text>
         </g>
       ))}
-      {[0, 7, 14, 21, 28].map((i) => <text key={i} className="lb" x={x(i).toFixed(1)} y={H - 6} textAnchor="middle">{md(programDate(env.program, i))}</text>)}
+      {ticks.map((i) => <text key={i} className="lb" x={x(i).toFixed(1)} y={H - 6} textAnchor="middle">{md(programDate(env.program, i))}</text>)}
       {dayIdx >= 0 && dayIdx <= xmax && <line className="tl" x1={x(dayIdx).toFixed(1)} x2={x(dayIdx).toFixed(1)} y1={pt} y2={H - pb} />}
       {avg.length > 1 && <path className="al" d={`M${avg.map((p) => `${x(p.i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' L')}`} />}
       {series.length > 0 && <path className="wl" d={`M${series.map((p) => `${x(p.i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' L')}`} />}
@@ -50,7 +57,7 @@ function Calendar({ dayIdx }: { dayIdx: number }) {
   const { open } = useOverlay();
   const lead = parseKey(env.program.startDate).getDay();
   return (
-    <div className="ringcal" role="group" aria-label="30일 달력">
+    <div className="ringcal" role="group" aria-label={`${env.program.days}일 달력`}>
       {DOW.map((h) => <div key={h} className="rc-h" aria-hidden="true">{h}</div>)}
       {Array.from({ length: lead }, (_, b) => <div key={`b${b}`} aria-hidden="true" />)}
       {Array.from({ length: env.program.days }, (_, i) => {
@@ -96,7 +103,7 @@ export function Records() {
   const end = addDays(start, P.days - 1);
   const last = stats.last;
   const prev = series.length > 1 ? series[series.length - 2]!.w : null;
-  const target = TARGETS[Math.min(v.ctx.week, 4)]!;
+  const targetText = weekGoalText(P, v.ctx.week);
   const daysLeft = Math.max(0, P.days - v.ctx.no);
   return (
     <>
@@ -111,7 +118,7 @@ export function Records() {
                 : <>시작 체중입니다. 아침 체중을 기록하면 여기가 바뀝니다</>}
             </p>
             <p className="hero-sub">
-              이번 주 목표 {target.text}
+              이번 주 목표 {targetText}
               {stats.projection != null ? ` · ${md(end)} 예상 ${stats.projection.toFixed(1)}kg` : ' · 5일 기록하면 도착 예상이 나옵니다'}
             </p>
           </section>
@@ -129,7 +136,7 @@ export function Records() {
             <div><dt>남은 기간</dt><dd>{daysLeft}<small>일</small></dd></div>
           </dl>
           <section>
-            <h2 className="section-title">30일 <span className="muted">{md(start)} ~ {md(end)}</span></h2>
+            <h2 className="section-title">{P.days}일 <span className="muted">{md(start)} ~ {md(end)}</span></h2>
             <Calendar dayIdx={v.ctx.idx} />
             <p className="note" style={{ marginTop: 14 }}>링은 그날 먹음 표시한 끼니 수(5끼 기준)이고, 아래 숫자는 체중입니다. 날짜를 누르면 그날 기록을 고칩니다.</p>
           </section>

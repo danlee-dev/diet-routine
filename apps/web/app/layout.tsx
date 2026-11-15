@@ -6,8 +6,8 @@ const interTight = Inter_Tight({ subsets: ['latin'], display: 'swap', variable: 
 const plexKr = IBM_Plex_Sans_KR({ weight: ['300', '400', '500', '600'], display: 'swap', preload: false, variable: '--font-plex-kr' });
 
 export const metadata: Metadata = {
-  title: '6kg 감량 루틴',
-  description: '한 달 6kg 감량을 위한 하루 식단 순서, 상황별 대처, 기록, 홈트와 장보기',
+  title: '감량 루틴',
+  description: '몇 가지 질문으로 만드는 내 감량 계획: 하루 식단, 상황별 대처, 기록, 운동과 장보기',
   appleWebApp: { capable: true, title: '감량 루틴', statusBarStyle: 'default' },
   icons: { icon: '/icon-192.png', apple: '/apple-touch-icon.png' },
 };

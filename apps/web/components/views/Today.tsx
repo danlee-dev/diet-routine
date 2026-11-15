@@ -312,12 +312,7 @@ function RebalanceCard({ v }: { v: TodayView }) {
   // dismissal is remembered per day and per 100 kcal step, so a bigger overshoot asks again
   const dkey = `rb:${v.ctx.key}:${Math.floor(p.over / 100)}:${p.proteinAdds.length}`;
   const [dismissedNow, setDismissedNow] = useState<string | null>(null);
-  // Carry-over lands on later days, so today's proposal still counts that excess after applying. Remember what
-  // was already carried today and only ask again for a new overshoot on top of it.
-  const carriedKey = `rb-carried:${v.ctx.key}`;
-  const carried = devicePref.get<number>(carriedKey, 0);
-  const fresh = p.proteinAdds.length > 0 || p.over - carried > 100;
-  if (!rebalanceWorthShowing(p) || !fresh || dismissedNow === dkey || devicePref.get<boolean>(dkey, false)) return null;
+  if (!rebalanceWorthShowing(p) || dismissedNow === dkey || devicePref.get<boolean>(dkey, false)) return null;
   const mealName = (k: MealKey) => (v.meals.find((m) => m.key === k)?.name ?? MEALS[k].name).replace(/ \(.+\)$/, '');
   // listed in meal order so each meal's changes sit together (the engine returns them by preference)
   const order = (k: MealKey) => { const i = v.meals.findIndex((m) => m.key === k); return i < 0 ? 99 : i; };
@@ -350,11 +345,9 @@ function RebalanceCard({ v }: { v: TodayView }) {
       {group('오늘 남은 끼니', today)}
       {group('앞으로 며칠', later)}
       <div className="card-acts">
-        <button type="button" className="btn-primary pill" onClick={() => {
-          const undo = applyRebalance(env, p);
-          devicePref.set(carriedKey, carried + p.carry.reduce((sum, c) => sum + c.kcal, 0));
-          toast('남은 계획을 맞췄습니다', () => { undo(); devicePref.set(carriedKey, carried); });
-        }}><Icon name="check" size="sm" />이렇게 맞추기</button>
+        <button type="button" className="btn-primary pill" onClick={() => { const undo = applyRebalance(env, p); toast('남은 계획을 맞췄습니다', undo); }}>
+          <Icon name="check" size="sm" />이렇게 맞추기
+        </button>
         <button type="button" className="link-btn quiet" onClick={() => { devicePref.set(dkey, true); setDismissedNow(dkey); }}>그대로 두기</button>
       </div>
     </section>

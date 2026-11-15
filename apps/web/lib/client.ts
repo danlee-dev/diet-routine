@@ -2,8 +2,8 @@
 // Browser-side singletons: the local store (localStorage), the Supabase client when configured, the Env
 // that every view/action in @diet/data receives, and the signed-in user.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { DEFAULT_PROGRAM } from '@diet/core';
-import { DataStore, type Env } from '@diet/data';
+import type { GeneratedPlan, OnboardingAnswers } from '@diet/core';
+import { adoptLegacyProfile, DataStore, profileState, programFromStore, type Env } from '@diet/data';
 
 const STORE_KEY = 'dr:store:v1';
 
@@ -29,10 +29,13 @@ export function getEnv(): Promise<Env> {
     await store.init();
     env = {
       store,
-      program: DEFAULT_PROGRAM,
+      // per user: read from the profile row every time, so onboarding, sign-in pulls and edits apply at once
+      get program() { return programFromStore(store); },
       now: () => new Date(),
       newId: () => crypto.randomUUID(),
     };
+    // the owner's browser from before onboarding existed: keep their built-in plan as their profile
+    if (profileState(store) === 'legacy') adoptLegacyProfile(env);
     window.addEventListener('pagehide', () => { void store.flush(); });
     return env;
   })();
@@ -140,6 +143,38 @@ export async function signInWithGoogle(): Promise<string | null> {
   if (!client) return '동기화 서버가 아직 연결되지 않았습니다';
   const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
   return error ? error.message : null;
+}
+
+/**
+ * Ask the server (coach) to refine the offline plan. Signed-in only; falls back to null on any failure or
+ * after `timeoutMs`, and the caller keeps the local plan.
+ */
+export async function generatePlanRemote(answers: OnboardingAnswers, baseline: GeneratedPlan, timeoutMs = 20000): Promise<GeneratedPlan | null> {
+  const client = getSupabase();
+  if (!client) return null;
+  const { data } = await client.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch('/api/plan/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ answers, baseline }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const g = (await res.json()) as Partial<GeneratedPlan> | null;
+    // accept only something shaped like a plan; anything else keeps the local one
+    const ok = !!g && typeof g.targets?.kcal === 'number' && typeof g.targets?.proteinFloor === 'number' && !!g.plan?.meals
+      && typeof g.weeklyCost === 'number' && !!g.day && Array.isArray(g.notes);
+    return ok ? (g as GeneratedPlan) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function signOut(e: Env): Promise<void> {
