@@ -3,8 +3,8 @@
 // prefilled for Settings > 내 정보 다시 입력.
 import { useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, Stack, useNavigation } from 'expo-router';
-import Animated, { FadeInLeft, FadeInRight, FadeOut } from 'react-native-reanimated';
+import { router, Stack } from 'expo-router';
+import Animated, { FadeInLeft, FadeInRight, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { generatePlan, type GeneratedPlan, type OnboardingAnswers } from '@diet/core';
@@ -26,7 +26,6 @@ export function OnboardingFlow({ mode }: { mode: 'new' | 'edit' }) {
   const env = useEnv();
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
   const { toast } = useToast();
   const [draft, setDraft] = useState<Draft>(() => (mode === 'edit' ? draftFromProfile(env) : emptyDraft()));
   const draftRef = useRef(draft);
@@ -42,6 +41,9 @@ export function OnboardingFlow({ mode }: { mode: 'new' | 'edit' }) {
   const [saving, setSaving] = useState(false);
   const [now] = useState(() => env.now());
   const id = STEPS[i]!;
+  // the review fades out before the gate swaps in Today, so the handover reads as one fade, not a blank cut
+  const shown = useSharedValue(1);
+  const shownStyle = useAnimatedStyle(() => ({ opacity: shown.value }));
 
   const set = (patch: Partial<Draft>) => {
     touched.add(STEPS[iRef.current]!);
@@ -85,9 +87,9 @@ export function OnboardingFlow({ mode }: { mode: 'new' | 'edit' }) {
     setSaving(true);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (mode === 'new') {
-      // the root gate sees the new profile and swaps this stack for Today; fade instead of a slide-back
-      navigation.setOptions({ animation: 'fade' });
-      saveNew(env, built.answers, result.plan, result.source);
+      // fade out, then save: the root gate sees the new profile and fades Today in (see _layout.tsx)
+      shown.set(withTiming(0, { duration: 180, reduceMotion: ReduceMotion.Never }));
+      setTimeout(() => saveNew(env, built.answers, result.plan, result.source), 180);
       return;
     }
     const undo = updateAnswers(env, built.answers, result.plan, result.source);
@@ -103,6 +105,7 @@ export function OnboardingFlow({ mode }: { mode: 'new' | 'edit' }) {
 
   return (
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: t.bg }}>
+      <Animated.View style={[{ flex: 1 }, shownStyle]}>
       {/* swipe-back only where it cannot throw away answers */}
       <Stack.Screen options={{ gestureEnabled: stage === 'ask' && i === 0 }} />
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 6, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
@@ -139,6 +142,7 @@ export function OnboardingFlow({ mode }: { mode: 'new' | 'edit' }) {
       {stage === 'review' && built && result && (
         <Review answers={built.answers} plan={result.plan} source={result.source} mode={mode} saving={saving} onSave={save} />
       )}
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }

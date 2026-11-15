@@ -62,7 +62,8 @@ export default function RootLayout() {
               <Stack.Screen name="onboarding" />
             </Stack.Protected>
             <Stack.Protected guard={onboarded} redirectTo="/welcome">
-              <Stack.Screen name="(tabs)" />
+              {/* only ever pushed by the guard (onboarding saved, or a profile pulled after sign-in): fade into Today */}
+              <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
             </Stack.Protected>
             <Stack.Screen name="sheet/time" options={sheet('fitToContents', { wheel: true })} />
             <Stack.Screen name="sheet/weight" options={sheet('fitToContents', { wheel: true })} />
