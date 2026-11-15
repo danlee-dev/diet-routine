@@ -7,6 +7,8 @@ import { adoptLegacyProfile, profileState, type Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
 import { EnvContext } from '@/lib/hooks';
 import { ToastProvider } from '@/components/ui';
+import { Splash } from '@/components/onboarding/Splash';
+import { useOnboarded } from '@/components/onboarding/gate';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -24,13 +26,13 @@ export default function RootLayout() {
   const scheme = useColorScheme();
   const t = useTheme();
   const [env, setEnv] = useState<Env | null>(null);
+  const onboarded = useOnboarded(env);
 
   useEffect(() => {
     void getEnv().then((e) => {
       // the owner's install from before onboarding existed: keep their plan exactly as it was
       if (profileState(e.store) === 'legacy') adoptLegacyProfile(e);
-      setEnv(e);
-      void SplashScreen.hideAsync();
+      setEnv(e); // <Splash> hides the native splash once it has drawn the same frame
     });
   }, []);
 
@@ -55,7 +57,13 @@ export default function RootLayout() {
       <EnvContext.Provider value={env}>
         <ToastProvider>
           <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" />
+            <Stack.Protected guard={!onboarded} redirectTo="/">
+              <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
+              <Stack.Screen name="onboarding" />
+            </Stack.Protected>
+            <Stack.Protected guard={onboarded} redirectTo="/welcome">
+              <Stack.Screen name="(tabs)" />
+            </Stack.Protected>
             <Stack.Screen name="sheet/time" options={sheet('fitToContents', { wheel: true })} />
             <Stack.Screen name="sheet/weight" options={sheet('fitToContents', { wheel: true })} />
             <Stack.Screen name="sheet/steps" options={sheet()} />
@@ -73,7 +81,9 @@ export default function RootLayout() {
             />
             <Stack.Screen name="auth/callback" options={{ animation: 'none' }} />
             <Stack.Screen name="workout" options={{ presentation: 'fullScreenModal', headerShown: false }} />
+            <Stack.Screen name="answers" options={{ presentation: 'fullScreenModal' }} />
           </Stack>
+          <Splash />
         </ToastProvider>
       </EnvContext.Provider>
     </ThemeProvider>
