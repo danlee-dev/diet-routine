@@ -103,11 +103,11 @@ export function addAdjustments(env: Env, rows: { offset: number; adj: DayAdjustm
 export const removeAdjustment = (env: Env, id: string): void => env.store.remove('plan_adjustments', id);
 
 /** Change only today's session (e.g. rest today, or B instead of A). Replaces an earlier one-day workout change. */
-export function setTodaySession(env: Env, t: WeekType, source: 'user' | 'ai' = 'user', reason?: string): () => void {
+export function setTodaySession(env: Env, t: WeekType, source: 'user' | 'ai' = 'user', reason?: string, meta: { id?: string; chatMessageId?: string | null } = {}): () => void {
   const date = today(env);
   const old = env.store.where<PlanAdjustmentRow>('plan_adjustments', (a) => a.date === date && a.change.kind === 'workout');
   for (const o of old) env.store.remove('plan_adjustments', o.id);
-  const undoNew = addAdjustments(env, [{ offset: 0, adj: { slot: null, source, reason: reason ?? null, change: { kind: 'workout', kcal_delta: 0, label: '오늘 운동 변경', workout: t } } }]);
+  const undoNew = addAdjustments(env, [{ offset: 0, adj: { ...(meta.id ? { id: meta.id } : {}), slot: null, source, reason: reason ?? null, change: { kind: 'workout', kcal_delta: 0, label: '오늘 운동 변경', workout: t } } }], undefined, meta.chatMessageId);
   return () => { undoNew(); for (const o of old) env.store.put<PlanAdjustmentRow>('plan_adjustments', { ...o, deleted_at: null }); };
 }
 

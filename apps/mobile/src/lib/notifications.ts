@@ -76,7 +76,7 @@ const isOurs = (d: unknown): d is Payload => !!d && typeof d === 'object' && (d 
 
 const CATEGORY: Partial<Record<PayloadKind, string>> = {
   meal: 'dr.meal', cutoff: 'dr.cutoff', water: 'dr.water', weigh: 'dr.weigh', workout: 'dr.workout', wakeSuggest: 'dr.wake',
-  steps: 'dr.steps', wrap: 'dr.wrap', carry: 'dr.info', weekly: 'dr.info',
+  steps: 'dr.steps', wrap: 'dr.wrap', carry: 'dr.info', weekly: 'dr.info', event: 'dr.info',
 };
 const categoryOf = (kind: PayloadKind, canApply?: boolean): string | undefined => (kind === 'carry' && canApply ? 'dr.carry' : CATEGORY[kind]);
 

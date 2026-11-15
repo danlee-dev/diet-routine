@@ -7,3 +7,4 @@ export * from './execute';
 export * from './tools';
 export * from './client';
 export * from './plangen';
+export * from './trends';

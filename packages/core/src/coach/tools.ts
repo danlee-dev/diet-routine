@@ -32,6 +32,13 @@ const DESCRIPTIONS: Record<CoachToolName, string> = {
   adjust_workout:
     'Change the workout plan. scope "today": today\'s session only ("오늘 하체 대신 걷기"). scope "week": which session each weekday gets from today on (A upper body and core, B lower body, walk, light = A with 3 rounds, rest). '
     + 'scope "routine": the exercises and base reps of routine A or B (pass the full list in order; the app scales reps by week). Does not save: it shows a change card.',
+  plan_event:
+    'Plan today or tomorrow around a meal out ("내일 저녁 회식이야", "오늘 점심 약속 있어"). The app lightens the meals before it (carbs first, never protein), adds protein before leaving, '
+    + 'gives the event meal the freed kcal as its budget, and works out how many glasses of each drink fit (highball and soju are lighter than beer). It also schedules a morning reminder for that day. '
+    + 'Returns the budget, the changes, drink options and tips; quote those numbers. Does not save: it shows a change card.',
+  get_trends:
+    'Summarize recent days for "이번 주 어땠어?", "지난주는?", "요즘 어때?": kept days, average intake against the target, protein days, weigh-ins and the weight trend, home workouts, runs and steps. '
+    + 'Read-only; the app also shows the numbers as a small card. Answer from the returned numbers only.',
 };
 
 const toSchema = (s: z.ZodType): CoachToolDef['input_schema'] => {

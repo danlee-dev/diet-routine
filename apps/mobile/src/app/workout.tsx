@@ -5,13 +5,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
-import { amrapOf, repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
+import { amrapOf, cueCountdown, cueDone, cueHoldEnd, cueHoldStart, cueMove, cueRest, cueRoundGo, repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
 import { completeWorkout, todayView, toggleMeal } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
 import { Btn, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import { AmrapPlayer } from '@/components/AmrapPlayer';
+import { VoiceToggle } from '@/components/VoiceToggle';
+import { sayWorkout, stopWorkoutVoice, useWorkoutVoice } from '@/lib/workoutVoice';
 
 type Phase = 'work' | 'hold' | 'rest' | 'done';
 const C = 2 * Math.PI * 104;
@@ -48,9 +50,21 @@ function RoundsPlayer() {
   const mult = repMultiplier(v.ctx.week);
   const items = v.routines[key].items.map((x) => ({ ...x, n: Math.round(x.n * mult) }));
   const cur = items[idx]!;
+  const voice = useWorkoutVoice();
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
-  useEffect(() => stop, []);
+  useEffect(() => () => { stop(); stopWorkoutVoice(); }, []);
+  // spoken cues: the move and reps when it comes up (the round on its first move), 3-2-1 at the end of holds and rests
+  const lastMove = useRef('');
+  useEffect(() => {
+    if (phase !== 'work' || lastMove.current === `${round}:${idx}`) return;
+    lastMove.current = `${round}:${idx}`;
+    sayWorkout(cueMove(cur, { idx, total: items.length, round, rounds }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, idx, round]);
+  useEffect(() => {
+    if (phase === 'hold' || phase === 'rest') sayWorkout(cueCountdown(left), true);
+  }, [phase, left]);
   const buzz = () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   const run = useCallback((secs: number, done: () => void) => {
     if (timer.current) clearInterval(timer.current);
@@ -65,8 +79,8 @@ function RoundsPlayer() {
   const next = () => {
     stop();
     if (idx < items.length - 1) { setIdx(idx + 1); setPhase('work'); }
-    else if (round < rounds) { setPhase('rest'); run(60, () => { setRound((r) => r + 1); setIdx(0); setPhase('work'); buzz(); }); }
-    else { setPhase('done'); completeWorkout(env, v.ctx.key, key, { rounds, startedAt: started.current ?? new Date(), endedAt: new Date() }); buzz(); }
+    else if (round < rounds) { setPhase('rest'); sayWorkout(cueRest(60, items[0])); run(60, () => { sayWorkout(cueRoundGo); setRound((r) => r + 1); setIdx(0); setPhase('work'); buzz(); }); }
+    else { setPhase('done'); completeWorkout(env, v.ctx.key, key, { rounds, startedAt: started.current ?? new Date(), endedAt: new Date() }); sayWorkout(cueDone(rounds)); buzz(); }
   };
   const ring = (
     <Svg width={220} height={220} viewBox="0 0 240 240">
@@ -84,8 +98,9 @@ function RoundsPlayer() {
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16, paddingHorizontal: 20 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ color: t.fg, fontWeight: '700', fontSize: 15 }}>{v.routines[key].name} · {phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <Text style={{ flex: 1, color: t.fg, fontWeight: '700', fontSize: 15 }}>{v.routines[key].name} · {phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</Text>
+        <VoiceToggle on={voice.on} onToggle={voice.toggle} />
         <Pressable accessibilityLabel="닫기" onPress={() => router.back()} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: t.surface, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="x" size={15} color={t.fg} weight="semibold" />
         </Pressable>
@@ -110,12 +125,12 @@ function RoundsPlayer() {
       </View>
       <View style={{ gap: 10 }}>
         {phase === 'work' && (cur.unit === '초'
-          ? <><Btn icon="timer" label={`${cur.n}초 타이머 시작`} style={{ height: 56 }} onPress={() => { setPhase('hold'); run(cur.n, () => { buzz(); next(); }); }} /><Btn kind="ghost" label="타이머 없이 완료" onPress={next} /></>
+          ? <><Btn icon="timer" label={`${cur.n}초 타이머 시작`} style={{ height: 56 }} onPress={() => { setPhase('hold'); sayWorkout(cueHoldStart(cur), true); run(cur.n, () => { buzz(); sayWorkout(cueHoldEnd); next(); }); }} /><Btn kind="ghost" label="타이머 없이 완료" onPress={next} /></>
           : <Btn icon="check" label={`${cur.n}${cur.unit.replace(' (양쪽)', '')} 했어요`} style={{ height: 56 }} onPress={next} />)}
         {phase === 'hold' && <Btn icon="check" label="끝났어요" style={{ height: 56 }} onPress={next} />}
         {phase === 'rest' && <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'center' }}>
           <Btn kind="ghost" label="+15초" onPress={() => { end.current += 15000; setLeft((l) => l + 15); setTotal((x) => x + 15); }} />
-          <Btn icon="skip-forward" label="바로 시작" onPress={() => { stop(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }} />
+          <Btn icon="skip-forward" label="바로 시작" onPress={() => { stop(); stopWorkoutVoice(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }} />
         </View>}
         {phase === 'done' && (postDone
           ? <Btn label="닫기" style={{ height: 56 }} onPress={() => router.back()} />

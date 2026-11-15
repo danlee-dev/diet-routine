@@ -5,8 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { amrapOf, fmt, hhmm, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
 import {
-  focusNow, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
-  type Focus, type TimelineItem, type TodayView,
+  coachMarks, focusNow, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
+  type CoachMark, type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
 import { useEnv, useMinuteTick, useRefresh } from '@/lib/hooks';
 import { getSupabase } from '@/lib/env';
@@ -16,6 +16,30 @@ import { Btn, Orb, useToast } from '@/components/ui';
 import { RebalanceCard } from '@/components/RebalanceCard';
 import { SuggestionCards } from '@/components/SuggestionCards';
 import { RainNote } from '@/components/RainNote';
+import { openCoachAt } from '@/lib/coach';
+
+/**
+ * "코치가 바꿈": opens the coach tab on the conversation whose card made the change. Reads the marks itself,
+ * outside the compiler's memo, so a card applied on the desktop shows here as soon as the rows sync.
+ */
+function CoachTag({ date, target, t }: { date: string; target: MealKey | 'workout'; t: Theme }) {
+  'use no memo';
+  const env = useEnv();
+  const m = coachMarks(env, date);
+  const mark: CoachMark | null | undefined = target === 'workout' ? m.workout : m.meals[target];
+  if (!mark) return null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`코치가 바꿈${mark.note ? `: ${mark.note}` : ''}. 그 대화 열기`}
+      hitSlop={6}
+      onPress={() => { void Haptics.selectionAsync(); openCoachAt(mark.messageId); router.navigate('/coach-tab'); }}
+      style={({ pressed }) => ({ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: pressed ? t.surface2 : t.surface })}
+    >
+      <Text style={{ color: t.fg2, fontSize: 11.5, fontWeight: '700' }}>코치가 바꿈</Text>
+    </Pressable>
+  );
+}
 
 function useMealActions(v: TodayView) {
   const env = useEnv();
@@ -216,6 +240,7 @@ function Row({ it, v, t, open, setOpen }: { it: TimelineItem; v: TodayView; t: T
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ color: done || it.state === 'skipped' ? t.muted : t.fg, fontSize: 15.5, fontWeight: '600', textDecorationLine: done && it.kind === 'meal' ? 'line-through' : 'none' }}>{it.title}</Text>
             {tag && <Text style={{ fontSize: 11.5, fontWeight: '700', color: t.fg2, backgroundColor: t.surface2, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' }}>{tag}</Text>}
+            {(it.kind === 'meal' || it.kind === 'workout') && <CoachTag date={v.ctx.key} target={it.kind === 'meal' ? (it.id as MealKey) : 'workout'} t={t} />}
           </View>
           <Text numberOfLines={it.state === 'skipped' ? 3 : 1} style={{ color: it.state === 'skipped' ? t.fg2 : t.muted, fontSize: 13, marginTop: 1 }}>{it.sub}</Text>
         </Pressable>

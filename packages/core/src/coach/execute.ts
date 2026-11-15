@@ -4,15 +4,18 @@
 // applied, so "log lunch -> rebalance" sees the logged lunch.
 import type { z } from 'zod';
 import { SKIP_ADVICE } from '../schedule';
-import type { MealKey, RoutineDef, WeekType } from '../data';
+import { CUTS, type MealKey, type RoutineDef, type WeekType } from '../data';
+import { drinkText, eventKindFor, planEvent } from '../event';
 import { proposalToAdjustments, rebalance, WEEK_LABEL, type AdjustedMeal, type MealOverride } from '../rebalance';
 import { addDays, fmt, keyOf, parseKey } from '../util';
 import {
-  AdjustWorkoutInputZ, CardZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, ProposeShopChangeInputZ, RebalanceTodayInputZ, SkipMealInputZ,
+  AdjustWorkoutInputZ, BlockZ, CardZ, GetTrendsInputZ, LogFoodInputZ, PlanEventInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, ProposeShopChangeInputZ,
+  RebalanceTodayInputZ, SkipMealInputZ,
 } from './schema';
+import { summarizeTrends } from './trends';
 import type {
-  AdjustWorkoutInput, CardRow, CoachCard, CoachSnapshot, CoachToolName, LogFoodInput, ProposeDayAdjustmentInput, ProposePlanChangeInput,
-  ProposeShopChangeInput, RebalanceTodayInput, SkipMealInput, SnapMeal,
+  AdjustWorkoutInput, CardRow, CoachBlock, CoachCard, CoachSnapshot, CoachToolName, GetTrendsInput, LogFoodInput, PlanEventInput, ProposeDayAdjustmentInput,
+  ProposePlanChangeInput, ProposeShopChangeInput, RebalanceTodayInput, SkipMealInput, SnapMeal, TrendBlock,
 } from './types';
 
 export const TOOL_INPUTS: Record<CoachToolName, z.ZodType> = {
@@ -23,6 +26,8 @@ export const TOOL_INPUTS: Record<CoachToolName, z.ZodType> = {
   skip_meal: SkipMealInputZ,
   adjust_workout: AdjustWorkoutInputZ,
   propose_shop_change: ProposeShopChangeInputZ,
+  plan_event: PlanEventInputZ,
+  get_trends: GetTrendsInputZ,
 };
 
 export const isCoachTool = (name: string): name is CoachToolName => Object.hasOwn(TOOL_INPUTS, name);
@@ -42,6 +47,8 @@ export interface ToolOutcome {
   /** JSON result for the model */
   result: Record<string, unknown>;
   card?: CoachCard;
+  /** a read-only block for the chat (get_trends) */
+  block?: CoachBlock;
   /** final label of this tool's step line */
   doneLabel: string;
   isError?: boolean;
@@ -76,6 +83,8 @@ export function toolStatusLabel(name: string, input?: Record<string, unknown>): 
     case 'skip_meal': return slot ? `${slot} 건너뛰기 정리 중` : '건너뛴 끼니 정리 중';
     case 'adjust_workout': return input?.scope === 'routine' ? '홈트 구성 바꿀 안 만드는 중' : input?.scope === 'week' ? '주간 운동 계획 바꿀 안 만드는 중' : input?.scope === 'today' ? '오늘 운동 조정안 만드는 중' : '운동 계획 살펴보는 중';
     case 'propose_shop_change': return '장보기 목록 바꿀 안 만드는 중';
+    case 'plan_event': return input?.day === 'today' ? '오늘 약속에 맞춰 식단 조정하는 중' : input?.day === 'tomorrow' ? '내일 약속에 맞춰 식단 조정하는 중' : '약속에 맞춰 식단 조정하는 중';
+    case 'get_trends': return input?.range === 'last_week' ? '지난주 기록 모으는 중' : input?.range === 'this_week' ? '이번 주 기록 모으는 중' : '최근 기록 모으는 중';
     case 'web_search': return typeof input?.query === 'string' ? `웹 검색 중: ${input.query}` : '웹 검색 중';
     default: return '처리 중';
   }
@@ -102,7 +111,8 @@ export class CoachSession {
       Object.assign(this.snap, before);
       return this.err('카드를 만들지 못했습니다. 항목 이름이나 설명을 짧게 해서 다시 시도하세요.');
     }
-    if (out.card && ['log_food', 'skip_meal', 'day_adjustment', 'plan_change'].includes(out.card.kind) && out.card.delta.kcal !== 0) this.affecting.push(out.card.id);
+    if (out.block && !BlockZ.safeParse(out.block).success) return this.err('기록 요약을 만들지 못했습니다.');
+    if (out.card && ['log_food', 'skip_meal', 'day_adjustment', 'plan_change', 'event'].includes(out.card.kind) && out.card.delta.kcal !== 0) this.affecting.push(out.card.id);
     return out;
   }
 
@@ -115,6 +125,8 @@ export class CoachSession {
       case 'propose_plan_change': return this.planChange(input as ProposePlanChangeInput);
       case 'adjust_workout': return this.adjustWorkout(input as AdjustWorkoutInput);
       case 'propose_shop_change': return this.shopChange(input as ProposeShopChangeInput);
+      case 'plan_event': return this.planEvent(input as PlanEventInput);
+      case 'get_trends': return this.getTrends(input as GetTrendsInput);
     }
   }
 
@@ -557,5 +569,116 @@ export class CoachSession {
       rows: [{ op: 'plan', effective_from: this.today, shopOps: ops, note: input.title }],
     }, before);
     return { card, doneLabel: '장보기 변경안 만듦', result: { card_id: card.id, now_total_won: total(shop.now), week_total_won: total(shop.week), shop_after: shop, note: APPLY_NOTE } };
+  }
+
+  // ------------------------------------------------------------ plan_event
+  private planEvent(input: PlanEventInput): ToolOutcome {
+    const s = this.snap;
+    const today = input.day === 'today';
+    const date = today ? this.today : this.dateAt(1);
+    const dayWord = today ? '오늘' : '내일';
+    const slotName = SLOT_NAME[input.slot]!;
+    if ((s.events ?? []).some((e) => e.date === date && e.slot === input.slot)) {
+      return this.err(`${dayWord} ${slotName}에 이미 약속이 잡혀 있습니다. 바꾸려면 그 카드를 먼저 되돌리세요.`);
+    }
+    const day = today ? { meals: s.meals, target: s.target.kcal } : s.tomorrow;
+    if (!day) return this.err('내일 식단 정보가 없습니다. 앱을 새로 연 뒤 다시 물어봐 주세요.');
+    const event = day.meals.find((m) => m.key === input.slot);
+    if (!event) return this.err(`${dayWord} 식단에 ${slotName} 끼니가 없습니다.`);
+    if (event.state !== 'pending') return this.err(`${dayWord} ${slotName}은 이미 기록돼 있습니다. log_food 로 기록을 고치세요.`);
+
+    // cuts already on that day: by id today, by label on tomorrow's meals (the snapshot has only today's rows)
+    const applied = new Set([
+      ...(today ? s.adjustments.map((a) => a.change.cut_id).filter((x): x is string => !!x) : []),
+      ...CUTS.filter((c) => day.meals.find((m) => m.key === c.slot)?.changes?.includes(c.label)).map((c) => c.id),
+    ]);
+    const p = planEvent({
+      meals: day.meals.map((m) => ({ key: m.key, name: m.name, items: m.items, pending: m.state === 'pending', ...contribution(m) })),
+      slot: input.slot, alcohol: input.alcohol, target: day.target, proteinFloor: s.target.proteinFloor, appliedCuts: applied,
+      avoid: [...(s.profile?.allergies ?? []), ...(s.profile?.dislikes ?? [])], label: input.label,
+    });
+
+    const dayBefore = R(day.meals.reduce((a, m) => a + contribution(m).kcal, 0));
+    const before = this.totals();
+    const lines: CoachCard['lines'] = [];
+    for (const m of day.meals) {
+      const mine = p.adjustments.filter((a) => a.slot === m.key);
+      if (!mine.length) continue;
+      const dk = mine.reduce((a, x) => a + x.change.kcal_delta, 0);
+      const dp = mine.reduce((a, x) => a + (x.change.protein_delta ?? 0), 0);
+      if (m.key === input.slot) {
+        lines.push({ label: m.name, before: `${itemsText(m.items)} · ${kcalText(m.kcal)}`, after: `${input.label} · 약 ${kcalText(p.budget)} · 단백질 ${p.eventProtein}g 이상` });
+      } else {
+        lines.push({ label: m.name, before: kcalText(m.kcal), after: `${mine.map((x) => x.change.label).join(', ')} · ${kcalText(m.kcal + dk)}` });
+      }
+      // the working day assumes the card is applied
+      const edit = mine.find((x) => x.change.kind === 'edit');
+      if (edit?.change.items) m.items = edit.change.items;
+      m.kcal = Math.max(0, m.kcal + dk);
+      m.protein = Math.max(0, m.protein + dp);
+      m.changes = [...(m.changes ?? []), ...mine.map((x) => x.change.label)];
+      if (today) this.shift(dk, dp);
+    }
+    if (input.alcohol) lines.push({ label: '술', after: p.drinks.length ? `${drinkText(p.drinks)}까지 · 약 ${kcalText(p.drinkBudget)} 안에서` : '이 예산에서는 마시지 않는 편이 좋습니다' });
+    lines.push({ label: `${dayWord} 계획`, before: kcalText(dayBefore), after: `${kcalText(p.dayKcal)} / 목표 ${kcalText(day.target)}` });
+    if (today) for (const a of p.adjustments) s.adjustments.push(a);
+    (s.events ??= []).push({ date, slot: input.slot, kind: eventKindFor(input.slot, input.alcohol), note: p.summary });
+
+    const rows: CardRow[] = [
+      ...p.adjustments.map((a): CardRow => ({ op: 'adjustment', date, slot: a.slot, change: a.change, reason: input.reason })),
+      { op: 'event', date, slot: input.slot, kind: eventKindFor(input.slot, input.alcohol), note: p.summary },
+    ];
+    const card = this.card({
+      kind: 'event',
+      title: input.title,
+      lines,
+      target: today ? `today:meal:${input.slot}` : `plan:meal:${input.slot}`,
+      note: today ? '오늘만 바뀌고 식단표는 그대로입니다' : '내일만 바뀌고 식단표는 그대로입니다. 내일 아침 알림으로 한 번 더 알려드립니다',
+      rows,
+    }, before);
+    return {
+      card,
+      doneLabel: `${dayWord} ${slotName} ${input.label}에 맞춰 조정안 만듦`,
+      result: {
+        card_id: card.id, date,
+        event: { slot: input.slot, label: input.label, budget_kcal: p.budget, planned_kcal: p.planned, protein_min_g: p.eventProtein },
+        moved_from_other_meals_kcal: p.freed,
+        changes: p.adjustments.filter((a) => a.slot !== input.slot).map((a) => ({ slot: a.slot, label: a.change.label, kcal: a.change.kcal_delta, protein: a.change.protein_delta ?? 0 })),
+        drinks: input.alcohol ? { budget_kcal: p.drinkBudget, options: p.drinks.map((d) => ({ name: d.name, glasses: d.count, serving: d.serving, kcal: d.kcal })) } : null,
+        tips: p.tips,
+        day_kcal_after: p.dayKcal, day_protein_after: p.dayProtein, target_kcal: R(day.target),
+        reminder: today ? null : `${date} 아침에 알림`,
+        note: APPLY_NOTE,
+      },
+    };
+  }
+
+  // ------------------------------------------------------------ get_trends
+  private getTrends(input: GetTrendsInput): ToolOutcome {
+    const s = this.snap;
+    if (!s.history?.length) return this.err('기간 기록이 앱에서 오지 않았습니다. 앱을 최신으로 업데이트하면 볼 수 있다고 말하세요.');
+    const t = summarizeTrends(s.history, input.range, this.today, { proteinFloor: s.target.proteinFloor, stepsGoal: s.steps.goal, ratePerWeek: s.weight.ratePerWeek });
+    const block: TrendBlock = {
+      id: this.nextId(), kind: 'trends', label: t.label, from: t.from, to: t.to, days: t.days, finished: t.finished,
+      kept: { days: t.kept.days, of: t.kept.of },
+      intake: t.intake,
+      weight: {
+        first: t.weight.first?.kg ?? null, last: t.weight.last?.kg ?? null, change: t.weight.change,
+        trendFirst: t.weight.trendFirst, trendLast: t.weight.trendLast, trendChange: t.weight.trendChange,
+        ratePerWeek: t.weight.ratePerWeek, points: t.weight.points,
+      },
+      workouts: { home: t.workouts.home, minutes: t.workouts.minutes },
+      runs: t.runs,
+      steps: t.steps,
+    };
+    const { points: _p, ...weight } = t.weight;
+    return {
+      block,
+      doneLabel: `${t.label} 기록 정리함`,
+      result: {
+        ...t, weight,
+        note: '이 결과의 숫자만 말하세요. 같은 내용이 채팅에 작은 카드로 함께 보입니다. 체중은 하루 값보다 추세(trendFirst -> trendLast)를 기준으로 말하고, 외식 다음 날 오른 체중은 소금 때문에 생긴 물 무게일 수 있다고 설명하세요.',
+      },
+    };
   }
 }

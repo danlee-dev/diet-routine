@@ -8,12 +8,12 @@ import { repMultiplier, workoutRounds } from './program';
 import { DINNER_CUTOFF, type PlannedMeal } from './schedule';
 import { addDays, fmt, hhmm, keyOf, minutesOf, parseKey, startOfDay } from './util';
 
-export type ReminderKind = 'meal' | 'cutoff' | 'workout' | 'weigh' | 'wrap' | 'carry' | 'steps' | 'weekly' | 'wake' | 'water';
+export type ReminderKind = 'meal' | 'event' | 'cutoff' | 'workout' | 'weigh' | 'wrap' | 'carry' | 'steps' | 'weekly' | 'wake' | 'water';
 
 /** Priority when the daily cap drops something (first = kept longest). */
-export const REMINDER_KINDS: ReminderKind[] = ['meal', 'cutoff', 'workout', 'weigh', 'wrap', 'carry', 'steps', 'weekly', 'wake', 'water'];
+export const REMINDER_KINDS: ReminderKind[] = ['meal', 'event', 'cutoff', 'workout', 'weigh', 'wrap', 'carry', 'steps', 'weekly', 'wake', 'water'];
 
-/** Kinds that are sent less often after three ignored days. The morning-after note and the weekly report are rare already. */
+/** Kinds that are sent less often after three ignored days. The morning-after note, the weekly report and event days are rare already. */
 export const REDUCIBLE_KINDS: ReminderKind[] = ['meal', 'cutoff', 'workout', 'weigh', 'wrap', 'steps', 'wake', 'water'];
 /** Kinds that can come several times a day; reduced, they come once. The others come every other day. */
 const MULTI_KINDS: ReminderKind[] = ['meal', 'water'];
@@ -37,7 +37,7 @@ export interface ReminderPrefs {
 
 export const DEFAULT_REMINDER_PREFS: ReminderPrefs = {
   enabled: true,
-  kinds: { meal: true, cutoff: true, workout: true, weigh: true, wrap: true, carry: true, steps: true, weekly: true, wake: true, water: true },
+  kinds: { meal: true, event: true, cutoff: true, workout: true, weigh: true, wrap: true, carry: true, steps: true, weekly: true, wake: true, water: true },
   quietStart: 23 * 60,
   quietEnd: 7 * 60,
   wakePromptAt: 9 * 60,
@@ -58,6 +58,8 @@ export interface ReminderDay {
   eaten: ReadonlySet<MealKey>;
   weight: number | null;
   stepsGoal?: number;
+  /** planned events of that day (`events` rows: "저녁 회식"), each gets a morning reminder */
+  events?: readonly ReminderEvent[];
 }
 
 /** What the planner cannot read from the day itself: yesterday's overshoot and this week's report. */
@@ -65,6 +67,12 @@ export interface ReminderExtras {
   overshoot?: Overshoot | null;
   weekly?: { title: string; body: string } | null;
 }
+
+export interface ReminderEvent { id: string; slot: string | null; kind: string; note: string | null }
+
+/** Morning reminder for a planned event: 15 minutes after waking, 08:00 while the wake time is unknown. */
+export const EVENT_REMINDER_DEFAULT = 8 * 60;
+const EVENT_TITLE: Record<string, string> = { breakfast: '아침', lunch: '점심', snack: '간식', post: '운동 후', dinner: '저녁' };
 
 /** Today's home workout as the Today screen shows it (`workoutPlan` in @diet/data). */
 export interface ReminderWorkout {
@@ -227,6 +235,19 @@ export function planReminders(
       body: `${r.focus} · ${rounds}라운드 · 약 ${routineMinutes(workout.routine, v.ctx.week, v.ctx.dow)}분`,
       routine: workout.routine,
     }, workout.routine);
+  }
+
+  // a day planned around an event (coach plan_event): the morning reminder repeats what changed
+  for (const e of v.events ?? []) {
+    const slot = e.slot && EVENT_TITLE[e.slot] ? e.slot : null;
+    const what = e.kind === 'drinks' ? '술자리가' : e.kind === 'dinner_out' ? '외식이' : '약속이';
+    let at = wake != null ? round5(wake + 15) : EVENT_REMINDER_DEFAULT;
+    if (inQuiet(at, prefs, wake)) at = Math.max(at, prefs.quietEnd);
+    add({
+      kind: 'event', at,
+      title: `오늘 ${slot ? `${EVENT_TITLE[slot]} ` : ''}${what} 있습니다`,
+      body: e.note?.trim() || '오늘 식단을 미리 조정해 두었습니다. 오늘 화면에서 확인하세요.',
+    }, slot ?? e.id);
   }
 
   if (wake != null && v.weight == null) {

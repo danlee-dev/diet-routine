@@ -3,7 +3,7 @@
 import {
   addDays, adjustedTarget, applyPlanChanges, effectiveRules, effectiveShop, partialMeal, dayCtx, effectiveRoutines, effectiveWeek, mealCheckId, sessionFor, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
   programDate, programKey, rolling7, stepsGoal, summary, weightSeries, weightStats, trendByDate, daysBetween, parseKey,
-  type ChecklistRow, type DayCtx, type DayRow, type EatoutSlot, type MealEntryRow, type MealKey, type PlannedMeal,
+  type ChecklistRow, type DayCtx, type DayRow, type EatoutSlot, type EventRow, type MealEntryRow, type MealKey, type PlannedMeal,
   type AdjustedMeal, type DayAdjustment, type PlanOverride, type RuleCard, type ShopPlan, type Program, type RoutineDef, type RoutineKey, type ScenId, type Summary,
   type WeekType, type WeightRow, type WorkoutRow,
 } from '@diet/core';
@@ -98,7 +98,11 @@ export interface TodayView {
   stepsGoal: number;
   weight: number | null;
   prevWeight: number | null;
+  /** planned events of the day ("저녁 회식", from the coach); the reminder planner sends a morning note for each */
+  events: EventRow[];
 }
+
+export const eventsOn = (env: Env, date: string): EventRow[] => env.store.where<EventRow>('events', (e) => e.date === date);
 
 export function todayView(env: Env): TodayView {
   const now = env.now();
@@ -124,6 +128,7 @@ export function todayView(env: Env): TodayView {
     stepsGoal: stepsGoal(ctx.week),
     weight: weightOn(env, ctx.key),
     prevWeight: previousWeight(env.program, env.store.all<WeightRow>('weights'), ctx.idx),
+    events: eventsOn(env, ctx.key),
   };
 }
 

@@ -1,12 +1,13 @@
 // Context snapshot for the coach: everything the model needs about "right now", computed on the device
 // from the same core functions the screens use, so the coach sees exactly the numbers on screen.
 import { SCEN, type RoutineDef, type RoutineKey, type WeekType } from '../data';
-import type { DayRow, MealEntryRow, PlanRow, WeightRow, WorkoutRow } from '../db';
+import type { DayRow, EventRow, MealEntryRow, PlanRow, WeightRow, WorkoutRow } from '../db';
 import { dayCtx, type Program } from '../program';
 import type { AdjustedMeal, DayAdjustment, PlanOverride, RuleCard, ShopPlan } from '../rebalance';
 import { summary } from '../schedule';
 import { clamp, hhmm, round1 } from '../util';
 import { trend, weightSeries, weightStats } from '../weight';
+import type { DayStat } from './trends';
 import type { CoachSnapshot, SnapMeal } from './types';
 
 export interface SnapshotInput {
@@ -36,6 +37,12 @@ export interface SnapshotInput {
   workoutPlan: { routine: RoutineKey; at: number | null; done: boolean } | null;
   stepsGoal: number;
   timeZone?: string;
+  /** planned events from today on (`events` rows) */
+  events?: Pick<EventRow, 'date' | 'slot' | 'kind' | 'note'>[];
+  /** tomorrow as planned, for plan_event (todayView of tomorrow) */
+  tomorrow?: { date: string; target: number; meals: AdjustedMeal[] } | null;
+  /** per-day stats for get_trends, oldest first, ending today */
+  history?: DayStat[];
 }
 
 const r = Math.round;
@@ -65,8 +72,8 @@ export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
   const meals = i.meals;
   const sum = summary(meals, i.entries);
 
-  const snapMeals: SnapMeal[] = meals.map((m) => {
-    const logged = i.entries.filter((e) => e.slot === m.key);
+  const snapMeal = (m: AdjustedMeal, entries: MealEntryRow[]): SnapMeal => {
+    const logged = entries.filter((e) => e.slot === m.key);
     const state: SnapMeal['state'] = logged.some((e) => e.kind === 'skip') ? 'skipped'
       : logged.some((e) => e.kind === 'replace') ? 'replaced'
       : logged.length ? 'eaten' : 'pending';
@@ -82,7 +89,8 @@ export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
       ...(m.changes?.length ? { changes: m.changes.slice(0, 10).map((c) => c.slice(0, 80)) } : {}),
       ...(m.edited ? { edited: m.edited.slice(0, 160) } : {}),
     };
-  });
+  };
+  const snapMeals: SnapMeal[] = meals.map((m) => snapMeal(m, i.entries));
 
   const extras = i.entries.filter((e) => e.slot === 'extra').slice(0, 20)
     .map((e) => ({ name: e.name.slice(0, 80), kcal: clamp(r(e.kcal), 0, 5000), protein: clamp(r(e.protein_g), 0, 400) }));
@@ -146,12 +154,28 @@ export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
       week: i.shop.week.slice(0, 30).map((x) => ({ id: x.id.slice(0, 80), name: x.name.slice(0, 80), qty: x.qty.slice(0, 60), price: clamp(r(x.price), 0, 1_000_000) })),
     },
     rules: i.rules.slice(0, 6).map((x) => ({ icon: x.icon.slice(0, 30), title: x.title.slice(0, 60), desc: x.desc.slice(0, 160) })),
+    ...(i.events ? { events: i.events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10).map((e) => ({ date: e.date, slot: e.slot, kind: e.kind, note: e.note?.slice(0, 300) ?? null })) } : {}),
+    ...(i.tomorrow !== undefined ? { tomorrow: i.tomorrow ? { date: i.tomorrow.date, target: clamp(r(i.tomorrow.target), 600, 5000), meals: i.tomorrow.meals.slice(0, 5).map((m) => snapMeal(m, [])) } : null } : {}),
+    ...(i.history ? { history: i.history.slice(-15).map(statSnap) } : {}),
+  };
+}
+
+/** One history day, bounded to the schema so an odd stored value never breaks the request. */
+function statSnap(d: DayStat): DayStat {
+  const kg = (v: number | null) => (v != null && v > 20 && v < 400 ? round1(v) : null);
+  return {
+    date: d.date, planned: clamp(d.planned, 0, 10), logged: clamp(d.logged, 0, 10), skipped: clamp(d.skipped, 0, 10),
+    kcal: clamp(r(d.kcal), 0, 20000), protein: clamp(r(d.protein), 0, 2000), target: clamp(r(d.target), 0, 20000),
+    steps: clamp(r(d.steps), 0, 200000), water: clamp(r(d.water), 0, 30), weight: kg(d.weight), trend: kg(d.trend),
+    workout: d.workout, workoutMin: d.workoutMin != null ? clamp(r(d.workoutMin), 0, 1000) : null,
+    runs: clamp(d.runs, 0, 20), runKm: clamp(round1(d.runKm), 0, 500), runMin: clamp(r(d.runMin), 0, 2000),
   };
 }
 
 /** The snapshot as the model reads it: compact JSON inside a tag, sent as user-turn data (never in the system prompt). */
 export function snapshotForModel(s: CoachSnapshot): string {
-  const { planOverride: _o, adjustments, week, ...rest } = s;
+  // history and tomorrow are tool inputs (get_trends, plan_event); the model reads them through the tool results
+  const { planOverride: _o, adjustments, week, history: _h, tomorrow: _t, ...rest } = s;
   const adj = adjustments.map((a) => ({ slot: a.slot, label: a.change.label, kcal: a.change.kcal_delta, ...(a.change.workout ? { session: a.change.workout } : {}) }));
   const days = ['일', '월', '화', '수', '목', '금', '토'];
   // '<' escaped so a food name or note like "</context>" cannot close the data block early
