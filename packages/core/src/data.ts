@@ -9,6 +9,8 @@ export type EatoutSlot = 'lunch' | 'dinner';
 export interface PlanItem {
   name: string;
   amount: string;
+  /** how to eat / prepare, e.g. "저지방 우유 200ml 에 타서 흔들기" */
+  note?: string;
 }
 
 export interface MealDef {
@@ -233,3 +235,32 @@ export const TARGET_BAND = {
   upper: [[0, 76], [7, 74], [14, 73], [21, 72], [28, 71], [29, 71]] as [number, number][],
   lower: [[0, 76], [7, 73.5], [14, 72.5], [21, 71.5], [28, 70], [29, 70]] as [number, number][],
 };
+
+/** Carb/extra items that can be trimmed from a planned meal. Protein sources are never listed. */
+export interface Cut {
+  id: string;
+  slot: MealKey;
+  label: string;
+  kcal: number;
+  protein: number;
+  /** a stronger version of another cut; applying it replaces that one */
+  replaces?: string;
+}
+
+/** Order = preference when the day runs over: smallest loss of satiety first. */
+export const CUTS: Cut[] = [
+  { id: 'lunch-rice-half', slot: 'lunch', label: '햇반 반 공기만', kcal: 100, protein: 2 },
+  { id: 'snack-nuts', slot: 'snack', label: '하루견과 빼기', kcal: 120, protein: 4 },
+  { id: 'breakfast-tangerine', slot: 'breakfast', label: '귤 3개 → 1개', kcal: 60, protein: 0 },
+  { id: 'post-water', slot: 'post', label: '프로틴을 우유 대신 물에 타기', kcal: 90, protein: 6 },
+  { id: 'lunch-rice-none', slot: 'lunch', label: '햇반 빼기', kcal: 200, protein: 4, replaces: 'lunch-rice-half' },
+  { id: 'dinner-dressing', slot: 'dinner', label: '드레싱 대신 레몬즙', kcal: 30, protein: 0 },
+  { id: 'breakfast-yogurt', slot: 'breakfast', label: '그릭요거트 빼기', kcal: 60, protein: 10 },
+];
+
+/** Protein top-ups when the day falls short of the protein floor. */
+export const PROTEIN_ADDS = [
+  { id: 'add-chicken-half', label: '닭가슴살 반 팩 추가', kcal: 60, protein: 12 },
+  { id: 'add-shake-water', label: '프로틴 1스쿱을 물에 타서', kcal: 120, protein: 24 },
+  { id: 'add-eggs', label: '구운란 2개', kcal: 140, protein: 12 },
+] as const;

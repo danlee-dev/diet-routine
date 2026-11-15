@@ -165,3 +165,50 @@ describe('keypad', () => {
     expect(keypadReduce(s, 'c').n).toBe(0);
   });
 });
+
+describe('plan changes and rebalance', () => {
+  it('removes a meal and edits items from a template override', async () => {
+    const { applyPlanChanges } = await import('../src');
+    const meals = applyPlanChanges(plan({ scen: 'home', eatout: 'lunch', wake: null }), {
+      meals: { snack: { removed: true }, post: { items: [{ name: '프로틴', amount: '1스쿱', note: '저지방 우유 200ml 에 타서 흔들기' }], note: '코치가 먹는 법 추가' } },
+    });
+    expect(meals.map((m) => m.key)).toEqual(['breakfast', 'lunch', 'post', 'dinner']);
+    expect(meals.find((m) => m.key === 'post')!.items[0]!.note).toContain('우유');
+    expect(meals.find((m) => m.key === 'post')!.edited).toBe('코치가 먹는 법 추가');
+  });
+
+  it('applies day adjustments and carried-over targets', async () => {
+    const { applyPlanChanges, adjustedTarget } = await import('../src');
+    const adj = [
+      { slot: 'lunch' as const, source: 'rebalance' as const, change: { kind: 'cut' as const, kcal_delta: -100, protein_delta: -2, label: '햇반 반 공기만' } },
+      { slot: null, source: 'rebalance' as const, change: { kind: 'carry' as const, kcal_delta: -150, label: '어제 넘친 만큼' } },
+    ];
+    const meals = applyPlanChanges(plan({ scen: 'home', eatout: 'lunch', wake: null }), null, adj);
+    const lunch = meals.find((m) => m.key === 'lunch')!;
+    expect([lunch.kcal, lunch.protein, lunch.changes]).toEqual([350, 20, ['햇반 반 공기만']]);
+    expect(adjustedTarget(1390, adj)).toBe(1240);
+  });
+
+  it('trims carbs first, keeps protein, and carries the rest', async () => {
+    const { rebalance, applyPlanChanges } = await import('../src');
+    const meals = applyPlanChanges(plan({ scen: 'home', eatout: 'lunch', wake: null }));
+    // breakfast as planned, lunch replaced by fried chicken (half): 1150 kcal / 70 g
+    const p = rebalance({ meals, logged: new Set(['breakfast', 'lunch']), eatenKcal: 295 + 1150, eatenProtein: 21 + 70, target: 1390, proteinFloor: 110, appliedCuts: new Set() });
+    expect(p.over).toBe(295 + 1150 + 250 + 210 + 185 - 1390);
+    expect(p.cuts.map((c) => c.id)).toEqual(['snack-nuts', 'post-water', 'dinner-dressing']);
+    expect(p.cuts.every((c) => c.slot !== 'lunch' && c.slot !== 'breakfast')).toBe(true);
+    expect(p.carry.length).toBeGreaterThan(0);
+    expect(p.carry.every((c) => c.kcal <= 200)).toBe(true);
+    expect(p.after.protein).toBeGreaterThanOrEqual(110);
+  });
+
+  it('suggests a protein top-up after skipping meals', async () => {
+    const { rebalance, applyPlanChanges } = await import('../src');
+    const meals = applyPlanChanges(plan({ scen: 'home', eatout: 'lunch', wake: null }));
+    const p = rebalance({ meals, logged: new Set(['breakfast', 'lunch', 'snack']), eatenKcal: 0, eatenProtein: 0, target: 1390, proteinFloor: 110, appliedCuts: new Set() });
+    expect(p.over).toBeLessThan(0);
+    expect(p.cuts).toEqual([]);
+    expect(p.proteinAdds.length).toBeGreaterThan(0);
+    expect(p.proteinAdds[0]!.slot).toBe('dinner');
+  });
+});
