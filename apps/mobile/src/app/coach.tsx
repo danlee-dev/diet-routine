@@ -1,6 +1,6 @@
 // AI coach chat (a tab, or a modal). Same events and change cards as the web panel; text and up to three photos.
-import { useRef, useState, type ReactNode } from 'react';
-import { ActionSheetIOS, Image, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ActionSheetIOS, AppState, Image, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
 import Animated, { FadeInDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
@@ -12,7 +12,8 @@ import { coachSnapshot } from '@diet/data';
 import { suggestedPrompts, turnSeconds, type AssistantTurn, type CoachCard, type CoachStep, type TurnPart } from '@diet/core/coach';
 import { useEnv } from '@/lib/hooks';
 import { emitCoachFocus, useCoachChat } from '@/lib/coach';
-import { pickPhotos, type CoachPhoto } from '@/lib/photo';
+import { pickPhotos, preparePasted, type CoachPhoto } from '@/lib/photo';
+import * as Clipboard from 'expo-clipboard';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Btn } from '@/components/ui';
 
@@ -77,6 +78,23 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
     });
   };
   const canSend = !!draft.trim() || photos.length > 0;
+  // a copied image (screenshot, photo from another app) shows the system 붙여넣기 button, which reads the
+  // clipboard without the paste permission prompt
+  const [clipImage, setClipImage] = useState(false);
+  useEffect(() => {
+    const check = () => { void Clipboard.hasImageAsync().then(setClipImage).catch(() => setClipImage(false)); };
+    check();
+    const app = AppState.addEventListener('change', (st) => { if (st === 'active') check(); });
+    const clip = Clipboard.addClipboardListener(() => check());
+    return () => { app.remove(); Clipboard.removeClipboardListener(clip); };
+  }, []);
+  const onPaste = (e: Clipboard.PasteEventPayload) => {
+    if (e.type !== 'image' || photos.length >= 3) return;
+    setPreparing(true);
+    void preparePasted(e.data, e.size.width, e.size.height)
+      .then((p) => { if (p) setPhotos((a) => [...a, p].slice(0, 3)); })
+      .finally(() => { setPreparing(false); setClipImage(false); });
+  };
 
   // 보기: open the screen that owns the target; that screen switches section / scrolls to it
   const view = (target: string) => {
@@ -150,6 +168,21 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
 
       {/* in the tab, keep clear of the floating tab bar */}
       <Animated.View style={[{ paddingHorizontal: 14, paddingTop: 8 }, inputPad]}>
+        {clipImage && photos.length < 3 && !preparing && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, paddingBottom: 8 }}>
+            <Text style={{ color: t.muted, fontSize: 13 }}>복사한 사진이 있습니다</Text>
+            <Clipboard.ClipboardPasteButton
+              acceptedContentTypes={['image']}
+              imageOptions={{ format: 'jpeg', jpegQuality: 0.9 }}
+              displayMode="iconAndLabel"
+              cornerStyle="capsule"
+              backgroundColor={t.fg}
+              foregroundColor={t.onFg}
+              onPress={onPaste}
+              style={{ width: 112, height: 34 }}
+            />
+          </View>
+        )}
         {(photos.length > 0 || preparing) && (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 4, paddingBottom: 8 }}>
             {photos.map((p, i) => (

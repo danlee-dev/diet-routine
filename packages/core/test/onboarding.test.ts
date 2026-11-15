@@ -51,3 +51,12 @@ describe('generatePlan', () => {
     expect(Object.values(weekFor('walk', 4)).every((t) => t === 'walk' || t === 'rest')).toBe(true);
   });
 });
+
+describe('carry-over floor', () => {
+  it('never plans a day under 1,200 kcal', async () => {
+    const { rebalance, MEALS } = await import('../src');
+    const meals = (['breakfast', 'lunch', 'snack', 'post', 'dinner'] as const).map((k) => ({ key: k, ...MEALS[k] }));
+    const p = rebalance({ meals, logged: new Set(), eatenKcal: 1500, eatenProtein: 60, target: 1290, proteinFloor: 110, appliedCuts: new Set() });
+    for (const c of p.carry) expect(1290 - c.kcal).toBeGreaterThanOrEqual(1200);
+  });
+});

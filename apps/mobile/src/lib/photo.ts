@@ -46,3 +46,8 @@ export async function pickPhotos(source: 'camera' | 'library', limit: number): P
   }
   return { photos: out };
 }
+
+/** A pasted image (data URI from the system paste button), shrunk and encoded like a picked photo. */
+export async function preparePasted(dataUri: string, width: number, height: number): Promise<CoachPhoto | null> {
+  return prepare({ uri: dataUri, width, height } as ImagePicker.ImagePickerAsset);
+}

@@ -190,6 +190,8 @@ export interface Proposal {
 }
 
 const MAX_CARRY_PER_DAY = 200;
+/** carry-over never takes a day's target below this */
+export const MIN_DAY_KCAL = 1200;
 const CARRY_DAYS = 3;
 
 export function rebalance(input: RebalanceInput): Proposal {
@@ -225,7 +227,9 @@ export function rebalance(input: RebalanceInput): Proposal {
   const carry: Proposal['carry'] = [];
   let left = Math.max(0, over - cutKcal);
   for (let d = 1; d <= CARRY_DAYS && left > 50; d++) {
-    const k = Math.min(MAX_CARRY_PER_DAY, Math.round(left / 10) * 10);
+    const room = Math.max(0, input.target - MIN_DAY_KCAL);
+    const k = Math.min(MAX_CARRY_PER_DAY, room, Math.round(left / 10) * 10);
+    if (k <= 0) break;
     carry.push({ offset: d, kcal: k });
     left -= k;
   }
