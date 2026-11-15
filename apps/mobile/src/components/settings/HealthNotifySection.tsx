@@ -29,6 +29,7 @@ const KIND_ROWS: { kind: ReminderKind; title: string; sub: string }[] = [
   { kind: 'wrap', title: '21:30 기록 마무리', sub: '비어 있는 끼니가 있을 때만 · 다 먹었어요' },
   { kind: 'carry', title: '많이 먹은 다음 날 아침', sub: '넘친 만큼 며칠에 나눠 줄이는 방법 · 나눠서 줄이기' },
   { kind: 'weekly', title: '일요일 20:00 주간 리포트', sub: '추세, 지킨 날, 다음 주 목표' },
+  { kind: 'event', title: '약속 있는 날 아침', sub: '코치로 잡은 회식·외식 날, 미리 바꾼 식단과 술 고르는 법' },
 ];
 
 const useReminderPrefs = (): ReminderPrefs => useSyncExternalStore(reminderPrefs.subscribe, reminderPrefs.get, reminderPrefs.get);

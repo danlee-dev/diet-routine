@@ -10,3 +10,6 @@ export * from './pantry';
 export * from './presets';
 export * from './weather';
 export * from './records';
+export * from './coachHistory';
+export * from './coachMarks';
+export * from './chat';

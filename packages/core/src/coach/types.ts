@@ -1,8 +1,8 @@
 // Types for the AI coach. Data shapes come from the zod schemas so validation and types never drift.
 import type { z } from 'zod';
 import type {
-  AdjustWorkoutInputZ, CardRowZ, CardZ, ChatRequestZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, ProposeShopChangeInputZ,
-  RebalanceTodayInputZ, SkipMealInputZ, SnapMealZ, SnapshotZ,
+  AdjustWorkoutInputZ, BlockZ, CardRowZ, CardZ, ChatRequestZ, DayStatZ, GetTrendsInputZ, LogFoodInputZ, PlanEventInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ,
+  ProposeShopChangeInputZ, RebalanceTodayInputZ, SkipMealInputZ, SnapMealZ, SnapshotZ, TrendBlockZ,
 } from './schema';
 
 export type CoachSnapshot = z.infer<typeof SnapshotZ>;
@@ -18,6 +18,11 @@ export type RebalanceTodayInput = z.infer<typeof RebalanceTodayInputZ>;
 export type SkipMealInput = z.infer<typeof SkipMealInputZ>;
 export type AdjustWorkoutInput = z.infer<typeof AdjustWorkoutInputZ>;
 export type ProposeShopChangeInput = z.infer<typeof ProposeShopChangeInputZ>;
+export type PlanEventInput = z.infer<typeof PlanEventInputZ>;
+export type GetTrendsInput = z.infer<typeof GetTrendsInputZ>;
+export type CoachBlock = z.infer<typeof BlockZ>;
+export type TrendBlock = z.infer<typeof TrendBlockZ>;
+export type SnapDayStat = z.infer<typeof DayStatZ>;
 
 /**
  * Server-sent events of POST /api/ai/chat (`event: <type>` + `data: <json>`).
@@ -25,6 +30,7 @@ export type ProposeShopChangeInput = z.infer<typeof ProposeShopChangeInputZ>;
  * - text: answer tokens as they stream.
  * - card: a change card. Never applied by the server; the client writes `rows` when the user taps 적용.
  * - sources: web search results the answer is based on.
+ * - block: a read-only card drawn in the chat (trend summary). Sent only to clients whose request lists 'blocks' in `features`.
  * - done: the turn ended normally.
  * - error: the turn failed; `code` tells the client what to show.
  */
@@ -33,9 +39,12 @@ export type CoachEvent =
   | { type: 'text'; delta: string }
   | { type: 'card'; card: CoachCard }
   | { type: 'sources'; items: { title: string; url: string }[] }
+  | { type: 'block'; block: CoachBlock }
   | { type: 'done'; stopReason: string }
   | { type: 'error'; code: CoachErrorCode; message: string };
 
 export type CoachErrorCode = 'auth' | 'forbidden' | 'rate_limit' | 'bad_request' | 'upstream' | 'refusal' | 'too_long';
 
-export type CoachToolName = 'log_food' | 'propose_plan_change' | 'propose_day_adjustment' | 'rebalance_today' | 'skip_meal' | 'adjust_workout' | 'propose_shop_change';
+export type CoachToolName =
+  | 'log_food' | 'propose_plan_change' | 'propose_day_adjustment' | 'rebalance_today' | 'skip_meal' | 'adjust_workout' | 'propose_shop_change'
+  | 'plan_event' | 'get_trends';

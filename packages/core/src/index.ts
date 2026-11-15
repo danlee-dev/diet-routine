@@ -17,3 +17,5 @@ export * from './reminders';
 export * from './insights';
 export * from './pantry';
 export * from './weather';
+export * from './event';
+export * from './workoutCues';

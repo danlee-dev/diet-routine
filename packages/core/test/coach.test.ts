@@ -98,7 +98,7 @@ describe('tool input validation', () => {
     expect(t.input_schema.type).toBe('object');
     expect(t.input_schema).not.toHaveProperty('$schema');
     expect(t.input_schema.required).toEqual(expect.arrayContaining(['slot', 'name', 'nutrition']));
-    expect(COACH_TOOLS.map((x) => x.name).sort()).toEqual(['adjust_workout', 'log_food', 'propose_day_adjustment', 'propose_plan_change', 'propose_shop_change', 'rebalance_today', 'skip_meal']);
+    expect(COACH_TOOLS.map((x) => x.name).sort()).toEqual(['adjust_workout', 'get_trends', 'log_food', 'plan_event', 'propose_day_adjustment', 'propose_plan_change', 'propose_shop_change', 'rebalance_today', 'skip_meal']);
     // the API rejects oneOf / anyOf / allOf at the top level of input_schema
     for (const tool of COACH_TOOLS) for (const k of ['oneOf', 'anyOf', 'allOf']) expect(tool.input_schema, `${tool.name}.${k}`).not.toHaveProperty(k);
   });

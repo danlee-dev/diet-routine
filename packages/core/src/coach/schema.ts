@@ -96,6 +96,28 @@ export const SnapMealZ = z.object({
   edited: text(160).optional(),
 });
 
+export const EventKindZ = z.enum(['dinner_out', 'drinks', 'travel', 'other']);
+export const EventSnapZ = z.object({ date: dateZ, slot: SlotZ.nullable(), kind: EventKindZ, note: text(300).nullable() });
+
+export const DayStatZ = z.object({
+  date: dateZ,
+  planned: z.number().int().min(0).max(10),
+  logged: z.number().int().min(0).max(10),
+  skipped: z.number().int().min(0).max(10),
+  kcal: num(0, 20000),
+  protein: num(0, 2000),
+  target: num(0, 20000),
+  steps: z.number().int().min(0).max(200000),
+  water: z.number().int().min(0).max(30),
+  weight: num(20, 400).nullable(),
+  trend: num(20, 400).nullable(),
+  workout: z.enum(['home_a', 'home_b']).nullable(),
+  workoutMin: num(0, 1000).nullable(),
+  runs: z.number().int().min(0).max(20),
+  runKm: num(0, 500),
+  runMin: num(0, 2000),
+});
+
 export const SnapshotZ = z.object({
   v: z.literal(1),
   now: z.object({
@@ -172,6 +194,12 @@ export const SnapshotZ = z.object({
     week: z.array(z.object({ id: text(80), name: text(80), qty: text(60), price: num(0, 1_000_000) })).max(30),
   }),
   rules: z.array(z.object({ icon: text(30), title: text(60), desc: text(160) })).max(6),
+  /** planned events from today on (`events` rows: "저녁 회식"), so the coach does not plan one twice */
+  events: z.array(EventSnapZ).max(10).optional(),
+  /** tomorrow as planned (plan version, situation and adjustments of that day), for plan_event; not shown to the model */
+  tomorrow: z.object({ date: dateZ, target: num(600, 5000), meals: z.array(SnapMealZ).max(5) }).nullable().optional(),
+  /** per-day stats of today and the 14 days before, for get_trends; not shown to the model */
+  history: z.array(DayStatZ).max(15).optional(),
 });
 
 // ---------------------------------------------------------------- request body (client -> server)
@@ -194,6 +222,8 @@ export const ChatRequestZ = z.object({
   images: z.array(ImageInputZ).max(3).default([]),
   history: z.array(HistoryTurnZ).max(24).default([]),
   snapshot: SnapshotZ,
+  /** what this client can render beyond text and cards ('blocks' = trend blocks); older clients send nothing */
+  features: z.array(z.string().max(20)).max(10).default([]),
 }).refine((b) => b.message.length > 0 || b.images.length > 0, { message: 'message or image required' });
 
 // ---------------------------------------------------------------- tool inputs (model -> server)
@@ -300,6 +330,19 @@ export const ProposeShopChangeInputZ = z.object({
   reason: text(200),
 });
 
+export const PlanEventInputZ = z.object({
+  day: z.enum(['today', 'tomorrow']).describe('약속이 오늘인지 내일인지'),
+  slot: z.enum(['lunch', 'dinner']).describe('약속이 대신하는 끼니'),
+  label: text(20).min(1).describe('약속 이름, 예: "회식", "친구 저녁", "가족 외식"'),
+  alcohol: z.boolean().describe('술을 마시는 자리인지'),
+  title: text(60).min(1).describe('카드 제목, 예: "내일 저녁 회식에 맞춰 미리 조정"'),
+  reason: text(200),
+});
+
+export const GetTrendsInputZ = z.object({
+  range: z.enum(['this_week', 'last_week', 'last_7', 'last_14']).describe('this_week: 이번 주 월요일부터 오늘까지. last_week: 지난주 월~일. last_7 / last_14: 오늘까지 최근 7일 / 14일'),
+});
+
 // ---------------------------------------------------------------- change cards (server -> client)
 
 export const CardRowZ = z.discriminatedUnion('op', [
@@ -337,6 +380,8 @@ export const CardRowZ = z.discriminatedUnion('op', [
   z.object({ op: z.literal('adjustment'), date: dateZ, slot: SlotZ.nullable(), change: AdjustmentChangeZ, reason: text(300) }),
   /** today's session only (setTodaySession) */
   z.object({ op: z.literal('session'), date: dateZ, session: WeekTypeZ, reason: text(300) }),
+  /** a planned event (`events` row); the reminder planner sends a morning notification for it */
+  z.object({ op: z.literal('event'), date: dateZ, slot: SlotZ.nullable(), kind: EventKindZ, note: text(300) }),
 ]);
 
 /** Where "보기" goes: plan:meal:<key>, plan:workout:week:<dow>, plan:workout:routine:<A|B>, today:meal:<key>, today:workout */
@@ -344,7 +389,7 @@ export const CardTargetZ = z.string().regex(/^(plan:meal:(breakfast|lunch|snack|
 
 export const CardZ = z.object({
   id: text(64).min(1),
-  kind: z.enum(['log_food', 'plan_change', 'day_adjustment', 'rebalance', 'skip_meal', 'workout', 'shop']),
+  kind: z.enum(['log_food', 'plan_change', 'day_adjustment', 'rebalance', 'skip_meal', 'workout', 'shop', 'event']),
   title: text(100).min(1),
   lines: z.array(z.object({ label: text(40), before: text(300).optional(), after: text(300) })).max(12),
   /** the day the card was made for (the snapshot date); plan and adjustment cards from an earlier day are refused */
@@ -366,3 +411,30 @@ export const CardZ = z.object({
   note: text(300).optional(),
   rows: z.array(CardRowZ).min(1).max(12),
 });
+
+// ---------------------------------------------------------------- blocks (server -> client, read-only)
+
+const kgZ = num(20, 400);
+/** get_trends result drawn as a small card in the chat. Numbers come from summarizeTrends only. */
+export const TrendBlockZ = z.object({
+  id: text(64).min(1),
+  kind: z.literal('trends'),
+  label: text(20),
+  from: dateZ,
+  to: dateZ,
+  days: z.number().int().min(1).max(31),
+  finished: z.number().int().min(0).max(31),
+  kept: z.object({ days: z.number().int().min(0).max(31), of: z.number().int().min(0).max(31) }),
+  intake: z.object({ loggedDays: z.number().int().min(0).max(31), avgKcal: num(0, 20000).nullable(), avgTarget: num(0, 20000).nullable(), avgProtein: num(0, 2000).nullable(), proteinFloor: num(0, 300), proteinDays: z.number().int().min(0).max(31) }),
+  weight: z.object({
+    first: kgZ.nullable(), last: kgZ.nullable(), change: num(-50, 50).nullable(),
+    trendFirst: kgZ.nullable(), trendLast: kgZ.nullable(), trendChange: num(-50, 50).nullable(),
+    ratePerWeek: num(-20, 20).nullable(),
+    points: z.array(z.object({ date: dateZ, kg: kgZ.nullable(), trend: kgZ.nullable() })).max(31),
+  }),
+  workouts: z.object({ home: z.number().int().min(0).max(31), minutes: num(0, 10000) }),
+  runs: z.object({ count: z.number().int().min(0).max(100), km: num(0, 2000), minutes: num(0, 20000) }),
+  steps: z.object({ avg: num(0, 200000).nullable(), goal: num(0, 100000), daysAtGoal: z.number().int().min(0).max(31) }),
+});
+
+export const BlockZ = z.discriminatedUnion('kind', [TrendBlockZ]);
