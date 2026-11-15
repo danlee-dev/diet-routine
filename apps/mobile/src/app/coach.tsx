@@ -78,21 +78,25 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
     });
   };
   const canSend = !!draft.trim() || photos.length > 0;
-  // a copied image (screenshot, photo from another app) shows the system 붙여넣기 button, which reads the
-  // clipboard without the paste permission prompt
+  // a copied image (screenshot, photo from another app) shows a 붙여넣기 button; reading it may ask iOS's
+  // paste permission once (hasImageAsync itself never prompts)
   const [clipImage, setClipImage] = useState(false);
+  // once a copied image is attached, don't offer it again until the clipboard changes
+  const usedClip = useRef(false);
   useEffect(() => {
-    const check = () => { void Clipboard.hasImageAsync().then(setClipImage).catch(() => setClipImage(false)); };
+    const check = () => { if (usedClip.current) return; void Clipboard.hasImageAsync().then(setClipImage).catch(() => setClipImage(false)); };
     check();
     const app = AppState.addEventListener('change', (st) => { if (st === 'active') check(); });
-    const clip = Clipboard.addClipboardListener(() => check());
+    const clip = Clipboard.addClipboardListener(() => { usedClip.current = false; check(); });
     return () => { app.remove(); Clipboard.removeClipboardListener(clip); };
   }, []);
-  const onPaste = (e: Clipboard.PasteEventPayload) => {
-    if (e.type !== 'image' || photos.length >= 3) return;
+  const onPaste = () => {
+    if (photos.length >= 3 || preparing) return;
     setPreparing(true);
-    void preparePasted(e.data, e.size.width, e.size.height)
-      .then((p) => { if (p) setPhotos((a) => [...a, p].slice(0, 3)); })
+    void Clipboard.getImageAsync({ format: 'jpeg', jpegQuality: 0.9 })
+      .then((img) => (img ? preparePasted(img.data, img.size.width, img.size.height) : null))
+      .then((p) => { if (p) { usedClip.current = true; setPhotos((a) => [...a, p].slice(0, 3)); } })
+      .catch(() => {})
       .finally(() => { setPreparing(false); setClipImage(false); });
   };
 
@@ -171,16 +175,10 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
         {clipImage && photos.length < 3 && !preparing && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, paddingBottom: 8 }}>
             <Text style={{ color: t.muted, fontSize: 13 }}>복사한 사진이 있습니다</Text>
-            <Clipboard.ClipboardPasteButton
-              acceptedContentTypes={['image']}
-              imageOptions={{ format: 'jpeg', jpegQuality: 0.9 }}
-              displayMode="iconAndLabel"
-              cornerStyle="capsule"
-              backgroundColor={t.fg}
-              foregroundColor={t.onFg}
-              onPress={onPaste}
-              style={{ width: 112, height: 34 }}
-            />
+            <Pressable accessibilityRole="button" onPress={onPaste} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 999, backgroundColor: t.fg, opacity: pressed ? 0.7 : 1 })}>
+              <SymbolView name="doc.on.clipboard" size={13} tintColor={t.onFg} />
+              <Text style={{ color: t.onFg, fontSize: 13.5, fontWeight: '600' }}>붙여넣기</Text>
+            </Pressable>
           </View>
         )}
         {(photos.length > 0 || preparing) && (

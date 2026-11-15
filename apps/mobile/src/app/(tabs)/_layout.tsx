@@ -13,7 +13,7 @@ export default function TabsLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="(workout)">
         <NativeTabs.Trigger.Label>운동</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="figure.run" />
+        <NativeTabs.Trigger.Icon sf="dumbbell" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="(coach)">
         <NativeTabs.Trigger.Label>코치</NativeTabs.Trigger.Label>
