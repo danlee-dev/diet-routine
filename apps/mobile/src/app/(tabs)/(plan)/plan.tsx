@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import {
   cycleSchedule, diffText, EXTRA, fmt, hhmm, MEALS, md, mdw, parseKey, programDate, repMultiplier, SCEN, SCEN_ORDER, DOW,
-  WEEK_LABEL, WEEK_TYPES, type MealKey, type RoutineKey, type ShopItem, type WeekType,
+  amrapOf, WEEK_LABEL, WEEK_TYPES, type MealKey, type RoutineKey, type ShopItem, type WeekType,
 } from '@diet/core';
 import { checklistSet, planMeta, setDay, setMealOverride, setTodaySession, setWeekDay, todayView, toggleChecklist } from '@diet/data';
 import { useEnv, useRefresh } from '@/lib/hooks';
@@ -203,11 +203,11 @@ function Workout({ t }: { t: Theme }) {
       <View style={{ marginTop: 24 }}>
         <Segmented t={t} value={rt} onChange={setRt} items={[['A', `${R2.A.name} · 상체`], ['B', `${R2.B.name} · 하체`]]} />
       </View>
-      <Section style={{ marginTop: 12 }} footer={`${v.ctx.week}주차 기준 횟수입니다. 주마다 조금씩 늘어납니다.`}>
+      <Section style={{ marginTop: 12 }} footer={amrapOf(R2[rt]) ? `${amrapOf(R2[rt])}분 동안 이 순서를 계속 반복하고 바퀴 수를 셉니다.` : `${v.ctx.week}주차 기준 횟수입니다. 주마다 조금씩 늘어납니다.`}>
         {R2[rt].items.map((x) => (
           <View key={x.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 16 }}>
             <Text style={{ color: t.fg, fontSize: 15.5 }}>{x.name}</Text>
-            <Text style={{ color: t.muted, fontSize: 15.5, fontVariant: ['tabular-nums'] }}>{Math.round(x.n * mult)}{x.unit}</Text>
+            <Text style={{ color: t.muted, fontSize: 15.5, fontVariant: ['tabular-nums'] }}>{amrapOf(R2[rt]) ? x.n : Math.round(x.n * mult)}{x.unit}</Text>
           </View>
         ))}
       </Section>

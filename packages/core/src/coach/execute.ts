@@ -496,15 +496,20 @@ export class CoachSession {
     const key = input.routine!;
     const items = input.items!;
     const was = s.routines[key].items;
-    s.routines[key] = { ...s.routines[key], items };
-    s.planOverride = { ...s.planOverride, workout: { ...s.planOverride?.workout, routines: { ...s.planOverride?.workout?.routines, [key]: { items } } } };
+    const wasMin = s.routines[key].amrapMin ?? null;
+    const min = input.amrap_minutes === undefined ? wasMin : input.amrap_minutes;
+    s.routines[key] = { ...s.routines[key], items, amrapMin: min };
+    s.planOverride = { ...s.planOverride, workout: { ...s.planOverride?.workout, routines: { ...s.planOverride?.workout?.routines, [key]: { ...s.planOverride?.workout?.routines?.[key], items, amrapMin: min } } } };
+    const fmtLine = (m: number | null) => (m ? `${m}분 동안 반복` : '정해진 라운드');
+    const lines: CoachCard['lines'] = [{ label: `홈트 ${key}`, before: itemsLine(was), after: itemsLine(items) }];
+    if (min !== wasMin) lines.push({ label: '방식', before: fmtLine(wasMin), after: fmtLine(min) });
     const card = this.card({
       kind: 'workout',
       title: input.title,
-      lines: [{ label: `홈트 ${key}`, before: itemsLine(was), after: itemsLine(items) }],
+      lines,
       target: `plan:workout:routine:${key}`,
-      note: '기본 횟수입니다. 3주차부터는 앱이 1.2배로 늘립니다',
-      rows: [{ op: 'plan', effective_from: this.today, routines: { [key]: items }, note: input.title }],
+      note: min ? `${min}분 타이머 동안 목록을 계속 반복하고 바퀴 수를 셉니다` : '기본 횟수입니다. 3주차부터는 앱이 1.2배로 늘립니다',
+      rows: [{ op: 'plan', effective_from: this.today, routines: { [key]: items }, ...(min !== wasMin ? { amrap: { [key]: min } } : {}), note: input.title }],
     }, before);
     return { card, doneLabel: '홈트 구성 변경안 만듦', result: { card_id: card.id, routine: key, items_after: items, note: APPLY_NOTE } };
   }

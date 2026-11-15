@@ -145,7 +145,7 @@ export const SnapshotZ = z.object({
   planMeta: z.object({ from: dateZ, source: z.enum(['default', 'ai', 'user']), note: text(200).nullable() }).nullable(),
   /** weekly schedule after edits, index = weekday (0 = Sunday) */
   week: z.array(z.object({ t: WeekTypeZ, label: text(10) })).length(7),
-  routines: z.record(RoutineKeyZ, z.object({ name: text(30), focus: text(40), items: z.array(RoutineItemZ).max(12) })),
+  routines: z.record(RoutineKeyZ, z.object({ name: text(30), focus: text(40), items: z.array(RoutineItemZ).max(12), amrapMin: z.number().nullable().optional() })),
   /** today's session after one-day changes */
   session: WeekTypeZ,
   adjustments: z.array(DayAdjustmentZ).max(40),
@@ -271,6 +271,7 @@ export const AdjustWorkoutInputZ = z.object({
   days: z.array(z.object({ dow: z.number().int().min(0).max(6).describe('0=일요일 ... 6=토요일'), session: WeekTypeZ })).min(1).max(7).optional().describe('scope=week 일 때 바꿀 요일들'),
   routine: RoutineKeyZ.optional().describe('scope=routine 일 때 바꿀 루틴'),
   items: z.array(RoutineItemZ).min(1).max(12).optional().describe('scope=routine 일 때 루틴의 동작 전체 목록, 순서대로 (주차별 배율은 앱이 적용)'),
+  amrap_minutes: z.number().int().min(5).max(60).nullable().optional().describe('scope=routine: 정해진 라운드 대신 이 시간 동안 목록을 계속 반복하고 바퀴 수를 셉니다 (예: "풀업 5, 푸시업 10, 스쿼트 15를 20분 동안" -> 20). null 이면 라운드 방식으로 되돌립니다. 생략하면 지금 방식 유지'),
   title: text(60).min(1).describe('카드 제목, 예: "오늘은 하체 대신 걷기"'),
   reason: text(200),
 }).superRefine((v, ctx) => {
@@ -323,6 +324,7 @@ export const CardRowZ = z.discriminatedUnion('op', [
     meals: z.partialRecord(MealKeyZ, MealOverrideZ.nullable()).optional(),
     week: z.partialRecord(z.enum(DOW), WeekTypeZ).optional(),
     routines: z.partialRecord(RoutineKeyZ, z.array(RoutineItemZ).min(1).max(12)).optional(),
+    amrap: z.partialRecord(RoutineKeyZ, z.number().int().min(5).max(60).nullable()).optional(),
     /** shopping list edits, applied to the list as it is at apply time */
     shopOps: z.array(z.object({
       action: z.enum(['add', 'remove', 'replace']),

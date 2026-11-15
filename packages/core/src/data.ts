@@ -210,6 +210,11 @@ export interface RoutineDef {
   name: string;
   focus: string;
   items: { name: string; n: number; unit: string }[];
+  /**
+   * Time-boxed instead of fixed rounds: repeat the list for this many minutes and count the rounds
+   * (e.g. 풀업 5, 푸시업 10, 스쿼트 15 for 20 minutes). Reps stay as written; the weekly multiplier is not applied.
+   */
+  amrapMin?: number | null;
 }
 
 export const ROUTINES: Record<RoutineKey, RoutineDef> = {

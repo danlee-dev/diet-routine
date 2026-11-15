@@ -6,9 +6,11 @@ import { useState } from 'react';
 import {
   applyPlanChanges, DOW, fmt, hhmm, MEALS, pad, plan, ROUTINES, WEEK_TYPES,
   type MealKey, type PlanItem, type RoutineDef, type RoutineKey, type WeekType,
+  amrapOf,
 } from '@diet/core';
 import {
-  addAdjustments, removeAdjustment, resetWorkout, setMealOverride, setRoutineItems, setTodaySession, setWeekDay, todayView,
+  addAdjustments, removeAdjustment, resetWorkout, setMealOverride, setTodaySession, setWeekDay, todayView,
+  setRoutine,
 } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { eul } from '@/lib/ko';
@@ -208,6 +210,7 @@ export function RoutineEditSheet({ k }: { k: RoutineKey }) {
   const [items, setItems] = useState<Item[]>(() => r.items.map((x) => ({ ...x })));
   const [name, setName] = useState('');
   const [unit, setUnit] = useState<'회' | '초'>('회');
+  const [amrap, setAmrap] = useState<number | null>(() => amrapOf(r));
   const step = (i: number, d: number) => setItems((a) => a.map((x, j) => (j === i ? { ...x, n: Math.max(1, x.n + d * (x.unit.startsWith('초') ? 5 : 1)) } : x)));
   const add = () => {
     if (!name.trim()) return;
@@ -237,10 +240,14 @@ export function RoutineEditSheet({ k }: { k: RoutineKey }) {
         </div>
         <button type="button" className="btn-ghost pill" disabled={!name.trim()} onClick={add}>추가</button>
       </div>
-      <p className="note" style={{ marginTop: 10 }}>기본 횟수입니다. 3주차부터는 1.2배로 늘려서 보여줍니다.</p>
+      <p className="section-label" style={{ marginTop: 20 }}>하는 방식</p>
+      <div className="seg" role="group" aria-label="하는 방식">
+        {[null, 10, 15, 20, 30].map((m) => <button key={String(m)} type="button" aria-pressed={amrap === m} onClick={() => setAmrap(m)}>{m ? `${m}분` : '라운드'}</button>)}
+      </div>
+      <p className="note" style={{ marginTop: 10 }}>{amrap ? `${amrap}분 동안 위 순서를 계속 반복하고, 한 바퀴 끝날 때마다 누르면 바퀴 수를 셉니다. 횟수는 적힌 그대로 합니다.` : '정해진 라운드를 쉬어 가며 합니다. 기본 횟수이고, 3주차부터는 1.2배로 늘려서 보여줍니다.'}</p>
       <div className="sheet-acts">
         <button type="button" className="btn-ghost pill" onClick={() => setItems(ROUTINES[k].items.map((x) => ({ ...x })))}>기본 구성</button>
-        <button type="button" className="btn-primary pill" disabled={!items.length} onClick={() => { const undo = setRoutineItems(env, k, items, 'user', `${r.name} 구성을 바꿨습니다`); close(); toast(`${eul(r.name)} 이렇게 합니다`, undo); }}>
+        <button type="button" className="btn-primary pill" disabled={!items.length} onClick={() => { const undo = setRoutine(env, k, { items, amrapMin: amrap }, 'user', amrap ? `${r.name}를 ${amrap}분 동안 반복으로 바꿨습니다` : `${r.name} 구성을 바꿨습니다`); close(); toast(`${eul(r.name)} 이렇게 합니다`, undo); }}>
           <Icon name="check" size="sm" />저장
         </button>
       </div>

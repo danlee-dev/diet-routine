@@ -3,7 +3,7 @@
 // Plan and adjustment rows go through the shared plan API (plan.ts) with source 'ai', the card title as the
 // note and the chat message id, so the plan screens can show "코치가 바꿈" and link back to the conversation.
 import {
-  effectiveShop, keyOf, withMeal, withRoutineItems,
+  effectiveShop, keyOf, withMeal, withRoutine, withRoutineItems,
   type MealEntryRow, type MealKey, type MealOverride, type PlanOverride, type PlanRow, type RoutineDef, type RoutineKey, type ShopItem,
   type ShopPlan, type WeekType, type WeightRow, type WorkoutRow,
 } from '@diet/core';
@@ -47,6 +47,7 @@ interface PlanInverse {
   meals: [MealKey, MealOverride | undefined][];
   week: [string, WeekType | undefined][];
   routines: [RoutineKey, RoutineDef['items'] | undefined][];
+  amrap: [RoutineKey, number | null | undefined][];
   shop: ShopInverse[];
 }
 
@@ -100,7 +101,7 @@ const setRoutine = (o: PlanOverride, k: RoutineKey, items: RoutineDef['items'] |
 /** Fold a patch onto a plan version. Meal fields merge onto the meal as it is now, so a card never carries stale edits. */
 function foldPatch(base: PlanOverride, row: PlanPatch): { next: PlanOverride; inverse: PlanInverse } {
   let next = base;
-  const inverse: PlanInverse = { meals: [], week: [], routines: [], shop: [] };
+  const inverse: PlanInverse = { meals: [], week: [], routines: [], amrap: [], shop: [] };
   for (const [k, m] of Object.entries(row.meals ?? {}) as [MealKey, MealOverride | null][]) {
     const prev = next.meals?.[k];
     inverse.meals.push([k, prev]);
@@ -116,6 +117,11 @@ function foldPatch(base: PlanOverride, row: PlanPatch): { next: PlanOverride; in
     inverse.routines.push([k, next.workout?.routines?.[k]?.items]);
     next = setRoutine(next, k, items);
   }
+  for (const [k, m] of Object.entries(row.amrap ?? {}) as [RoutineKey, number | null][]) {
+    const cur = next.workout?.routines?.[k];
+    inverse.amrap.push([k, cur?.amrapMin]);
+    next = withRoutine(next, k, { items: cur?.items ?? [], amrapMin: m });
+  }
   if (row.shopOps?.length) {
     // a user still on the built-in list gets their own copy the first time the coach edits it
     const r = applyShopOps(effectiveShop(next), row.shopOps);
@@ -130,6 +136,10 @@ function unfold(cur: PlanOverride, inv: PlanInverse): PlanOverride {
   for (const [k, m] of inv.meals) next = withMeal(next, k, m ?? null);
   for (const [d, t] of inv.week) next = setWeek(next, d, t);
   for (const [k, items] of inv.routines) next = setRoutine(next, k, items);
+  for (const [k, m] of inv.amrap) {
+    const cur = next.workout?.routines?.[k];
+    if (cur) next = withRoutine(next, k, { items: cur.items, amrapMin: m ?? null });
+  }
   if (inv.shop.length) next = { ...next, shop: undoShopOps(effectiveShop(next), inv.shop) };
   return next;
 }
