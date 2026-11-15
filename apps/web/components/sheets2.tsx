@@ -1,12 +1,13 @@
 'use client';
 // Sheets for the v3 layout: the + action sheet, "ate something else", and the situation picker.
 import { useMemo, useState } from 'react';
-import { fmt, keypadReduce, partialMeal, PORTIONS, PRESETS, SCEN, SCEN_ORDER, type FoodPreset, type KeypadState, type MealKey, type Slot } from '@diet/core';
-import { eatPartial, logFood, remainingKcal, setDay, setWater, skipMeal, todayView, toggleMeal, workoutPlan, type TodayView } from '@diet/data';
+import { fmt, keypadReduce, partialMeal, PORTIONS, SCEN, SCEN_ORDER, type FoodPreset, type KeypadState, type MealKey, type Slot } from '@diet/core';
+import { eatPartial, foodPresets, logFood, PRESET_GROUPS, remainingKcal, setDay, setWater, skipMeal, todayView, toggleMeal, workoutPlan, type TodayView } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { Icon } from './Icon';
 import { Keypad, SheetHead, useOverlay } from './ui';
 import { RulesSheet, StepsSheet, TimeSheet, WeightSheet } from './sheets';
+import { PresetsSheet } from './PresetsSheet';
 
 export function ScenarioSheet() {
   const env = useEnv();
@@ -31,7 +32,6 @@ export function ScenarioSheet() {
   );
 }
 
-const GROUPS: [FoodPreset['group'], string][] = [['delivery', '배달·외식'], ['meal', '식사'], ['drink', '마실 것'], ['snack', '간식']];
 
 /** Ate the planned meal but not all of it: uncheck what was left, totals follow live, saved with eatPartial. */
 function PartialMeal({ v, slot }: { v: TodayView; slot: MealKey }) {
@@ -95,8 +95,9 @@ function PartialMeal({ v, slot }: { v: TodayView; slot: MealKey }) {
 
 export function FoodSheet({ slot: initialSlot, mode: initialMode = 'other' }: { slot?: Slot; mode?: 'partial' | 'other' }) {
   const env = useEnv();
-  const { close, toast } = useOverlay();
+  const { close, toast, open } = useOverlay();
   const v = todayView(env);
+  const presets = foodPresets(env);
   const [slot, setSlot] = useState<Slot>(initialSlot ?? v.next?.key ?? 'extra');
   const [mode, setMode] = useState<'partial' | 'other'>(initialMode);
   const [preset, setPreset] = useState<FoodPreset | null>(null);
@@ -145,11 +146,11 @@ export function FoodSheet({ slot: initialSlot, mode: initialMode = 'other' }: { 
       {partial && planned && <PartialMeal key={planned.key} v={v} slot={planned.key} />}
       {!partial && !preset && !manual && (
         <>
-          {GROUPS.map(([g, label]) => (
+          {PRESET_GROUPS.filter(([g]) => presets.some((p) => p.group === g)).map(([g, label]) => (
             <div key={g}>
               <p className="group-h">{label}</p>
               <div className="pick-list" style={{ marginTop: 0 }}>
-                {PRESETS.filter((p) => p.group === g).map((p) => (
+                {presets.filter((p) => p.group === g).map((p) => (
                   <button key={p.id} type="button" className="pick-row no-ic" onClick={() => setPreset(p)}>
                     <span><b>{p.name}</b><span>{p.serving} · 단백질 {p.protein}g</span></span>
                     <span className="r">{fmt(p.kcal)}kcal</span>
@@ -158,7 +159,10 @@ export function FoodSheet({ slot: initialSlot, mode: initialMode = 'other' }: { 
               </div>
             </div>
           ))}
-          <button type="button" className="btn-ghost pill" style={{ marginTop: 16 }} onClick={() => setManual(true)}>목록에 없어요 · 직접 입력</button>
+          <div className="row" style={{ marginTop: 16 }}>
+            <button type="button" className="btn-ghost pill" onClick={() => setManual(true)}>목록에 없어요 · 직접 입력</button>
+            <button type="button" className="link-btn quiet" onClick={() => open(<PresetsSheet />)}>목록 고치기</button>
+          </div>
         </>
       )}
       {preset && (

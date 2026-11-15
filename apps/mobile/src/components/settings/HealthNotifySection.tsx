@@ -8,7 +8,7 @@ import { todayView } from '@diet/data';
 import { useEnv, useMinuteTick } from '@/lib/hooks';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import {
-  devRunButtons, notifyPermission, plannedReminders, previewReminders, reminderPrefs, requestNotifyPermission, type NotifyPermission,
+  devRunButtons, notifyPermission, plannedReminders, previewReminders, reminderPrefs, requestNotifyPermission, restoreKind, type NotifyPermission,
 } from '@/lib/notifications';
 import {
   connectHealth, disconnectHealth, healthAccess, healthAvailable, healthExtrasAccess, healthPrefs, healthWriteAllowed, lastNightWake, latestHealthWeight,
@@ -25,6 +25,10 @@ const KIND_ROWS: { kind: ReminderKind; title: string; sub: string }[] = [
   { kind: 'workout', title: '홈트', sub: '홈트 날 추천 시각에 루틴과 걸리는 시간' },
   { kind: 'water', title: '물', sub: '마시는 속도가 늦을 때만, 하루 두 번까지 · 물 +1' },
   { kind: 'weigh', title: '아침 체중', sub: '일어나고 10분 뒤 · 알림에서 바로 입력' },
+  { kind: 'steps', title: '18:30 걸음', sub: '목표의 60%가 안 될 때만 · 걷기 시작' },
+  { kind: 'wrap', title: '21:30 기록 마무리', sub: '비어 있는 끼니가 있을 때만 · 다 먹었어요' },
+  { kind: 'carry', title: '많이 먹은 다음 날 아침', sub: '넘친 만큼 며칠에 나눠 줄이는 방법 · 나눠서 줄이기' },
+  { kind: 'weekly', title: '일요일 20:00 주간 리포트', sub: '추세, 지킨 날, 다음 주 목표' },
 ];
 
 const useReminderPrefs = (): ReminderPrefs => useSyncExternalStore(reminderPrefs.subscribe, reminderPrefs.get, reminderPrefs.get);
@@ -207,9 +211,20 @@ function RemindersBlock() {
 
       {live && (
         <Card t={t} style={{ marginTop: 12 }}>
-          {KIND_ROWS.map((k) => (
-            <Row key={k.kind} t={t} title={k.title} sub={k.sub} right={<Toggle label={k.title} on={prefs.kinds[k.kind]} onChange={(on) => setKind(k.kind, on)} />} />
-          ))}
+          {KIND_ROWS.map((k) => {
+            const reduced = prefs.kinds[k.kind] !== false && !!prefs.reduced[k.kind];
+            return (
+              <View key={k.kind} style={{ gap: 8 }}>
+                <Row t={t} title={k.title}
+                  sub={reduced ? `3일 연속 반응이 없어 ${k.kind === 'meal' || k.kind === 'water' ? '하루 한 번으로' : '이틀에 한 번으로'} 줄였습니다` : k.sub}
+                  right={<Toggle label={k.title} on={prefs.kinds[k.kind] !== false} onChange={(on) => { setKind(k.kind, on); if (on && prefs.reduced[k.kind]) restoreKind(k.kind, v.ctx.key); }} />} />
+                {reduced && (
+                  <Btn small kind="ghost" label="원래대로 받기" style={{ alignSelf: 'flex-start' }}
+                    onPress={() => { restoreKind(k.kind, v.ctx.key); toast(`${k.title} 알림을 원래대로 보냅니다`); }} />
+                )}
+              </View>
+            );
+          })}
           <Row t={t} title="기상 시간 묻기" sub={prefs.kinds.wake && inQuiet(prefs.wakePromptAt, prefs, null) ? '조용한 시간에 걸려 보내지 않습니다' : '이 시각까지 기상 시간이 없으면 한 번'}
             right={
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

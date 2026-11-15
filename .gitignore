@@ -25,6 +25,9 @@ apps/mobile/android/
 *.ipa
 *.xcarchive
 
+# copied from node_modules by apps/web/scripts/copy-map-worker.mjs
+apps/web/public/maplibre/
+
 # misc
 .DS_Store
 *.log

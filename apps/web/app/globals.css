@@ -275,6 +275,46 @@ ol.rule-list li::before{counter-increment:r;content:counter(r);position:absolute
 .legend i{display:inline-block;width:16px;height:2px;border-radius:2px;background:var(--fg)}
 .legend i.a{background:none;border-top:2px dashed var(--muted);height:0}
 .legend i.b{height:10px;background:var(--surface-2);border-radius:3px}
+/* trend first: the smoothed line large, daily weigh-ins as small muted dots */
+.chart .pt{fill:var(--muted)}
+.chart .trl{fill:none;stroke:var(--fg);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.chart .trd{fill:var(--fg)}
+@media (max-width:767px){ .chart .trl{stroke-width:5} }
+.legend i{height:3px}
+.legend i.d{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.insights{display:flex;flex-direction:column;gap:14px;margin-top:18px}
+.water-note{padding:16px 18px;border-radius:var(--r-md);background:var(--surface)}
+.water-note h3{font-size:15px;font-weight:600}
+.water-note p{margin-top:4px;font-size:14px;color:var(--fg-2);line-height:1.5}
+.insight-rows{display:flex;flex-direction:column;gap:12px}
+.insight-rows dt{font-size:12.5px;font-weight:600;color:var(--muted)}
+.insight-rows dd{margin-top:2px;font-size:14.5px;line-height:1.5;text-wrap:pretty}
+/* weekly recap */
+.recap{margin-top:28px;padding:22px 20px 20px;border-radius:var(--r-xl);background:var(--surface)}
+.recap-range{font-size:12.5px;font-weight:500;color:var(--muted)}
+.recap-t{font-family:var(--font-display);font-weight:300;font-size:clamp(26px,7vw,32px);letter-spacing:-.03em;line-height:1.15;margin-top:2px}
+.recap-delta{display:flex;align-items:flex-end;flex-wrap:wrap;gap:4px 12px;margin-top:16px}
+.recap-delta .num{font-weight:200;font-size:48px;line-height:1;letter-spacing:-.04em}
+.recap-delta .num small{font-size:16px;font-weight:400;color:var(--muted);margin-left:4px;letter-spacing:0}
+.recap-trend{font-size:13px;color:var(--muted);padding-bottom:5px}
+.recap-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin-top:20px;list-style:none;padding:0}
+.recap-strip li{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);font-weight:500}
+.recap-strip i{display:block;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--ctrl)}
+.recap-strip .is-kept i{background:var(--fg);border-color:var(--fg)}
+.recap-strip .is-logged i{border-color:var(--fg)}
+.recap-strip .is-empty i,.recap-strip .is-future i{opacity:.6}
+.recap-strip .is-future i{border-style:dashed}
+.recap .trio{margin-top:20px}
+.recap-best{margin-top:18px;padding:14px 16px;border-radius:var(--r-md);background:var(--bg)}
+.recap-best .k{font-size:12px;font-weight:600;color:var(--muted)}
+.recap-best .v{margin-top:3px;font-size:15px;font-weight:600}
+.recap-best .s{margin-top:1px;font-size:12.5px;color:var(--fg-2)}
+/* suggestions on Today: change the plan only when accepted */
+.sg-list{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.sg-card{padding:18px 20px;border-radius:var(--r-lg);background:var(--surface)}
+.sg-t{font-size:16.5px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.sg-b{margin-top:5px;font-size:14px;color:var(--fg-2);line-height:1.5;text-wrap:pretty}
+.sg-card .card-acts{margin-top:14px}
 .col > .btn-primary,.col > .btn-ghost{align-self:flex-start}
 
 /* 30 days as progress rings */
@@ -772,3 +812,118 @@ kbd{font-family:var(--font-body);font-size:11.5px;padding:2px 6px;border-radius:
 @supports (corner-shape:squircle){.amrap-list{corner-shape:squircle}}
 .amrap-list li{display:flex;justify-content:space-between;font-size:18px}
 .wo-lap{height:60px;font-size:17px}
+
+/* ---------- brand gradient (routes only) ---------- */
+:root{ --orb1:#FF7A45; --orb2:#FF4F6D; --map-ctrl-filter:none; --knob:#FFFFFF; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --orb1:#F0743F; --orb2:#E24C68; --map-ctrl-filter:invert(1); --knob:#CFCFCF; } }
+:root[data-theme="dark"]{ --orb1:#F0743F; --orb2:#E24C68; --map-ctrl-filter:invert(1); --knob:#CFCFCF; }
+
+/* five places on the phone bar: 오늘 · 운동 · + · 기록 · 계획 */
+.bottombar{grid-template-columns:1fr 1fr 76px 1fr 1fr}
+
+/* ---------- 운동 › 달리기 ---------- */
+.route-map{position:relative;width:100%;height:320px;border-radius:var(--r-lg);overflow:hidden;background:var(--surface)}
+.route-map.big{height:min(56dvh,420px)}
+.route-map.is-empty{display:grid;place-items:center;color:var(--muted);font-size:14px}
+.route-map .maplibregl-ctrl.maplibregl-ctrl-attrib,.route-map .maplibregl-ctrl-attrib.maplibregl-compact{font-size:10.5px;background:color-mix(in srgb,var(--bg) 80%,transparent);color:var(--muted)}
+.route-map .maplibregl-ctrl-attrib a{color:var(--muted)}
+.route-map .maplibregl-ctrl-attrib-button{filter:var(--map-ctrl-filter)}
+.route-map .maplibregl-cooperative-gesture-screen{font-family:var(--font-body);font-size:15px}
+.run-list{display:flex;flex-direction:column;gap:2px}
+.run-row{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:14px;padding:10px;margin:0 -10px;border-radius:var(--r-md);text-align:left;transition:background .2s}
+.run-row.is-on{background:var(--surface)}
+@media (hover:hover){ .run-row:not(.is-on):hover{background:var(--surface)} }
+.run-row .tx{min-width:0}
+.run-row .tx b{display:block;font-size:15px;font-weight:600}
+.run-row .tx span{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.run-row .r{font-size:22px;font-weight:300;letter-spacing:-.02em;white-space:nowrap}
+.run-row .r small{font-size:12.5px;color:var(--muted);margin-left:2px;letter-spacing:0}
+.run-thumb{display:block;width:56px;height:56px;border-radius:var(--r-sm);background:var(--surface-2)}
+.run-row.is-on .run-thumb{background:var(--bg)}
+.run-detail{display:flex;flex-direction:column}
+.run-detail .back{align-self:flex-start;margin:-4px 0 8px -2px}
+.run-head{margin-top:20px}
+.run-t{font-size:18px;font-weight:600;margin-top:2px}
+.run-km{font-size:clamp(68px,20vw,92px);font-weight:200;line-height:1;letter-spacing:-.05em;margin-top:8px}
+.run-km small{font-size:18px;font-weight:500;color:var(--muted);letter-spacing:0;margin-left:6px}
+.run-sum{margin-top:10px;font-size:14.5px;color:var(--fg-2);line-height:1.55}
+.run-cells{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 12px;margin-top:22px}
+.run-cells dt{font-size:12.5px;color:var(--muted)}
+.run-cells dd{font-size:26px;font-weight:300;letter-spacing:-.02em;line-height:1.25;white-space:nowrap}
+.run-credit{margin-top:24px;padding:16px 18px;border-radius:var(--r-md);background:var(--surface)}
+.run-credit b{display:block;font-size:15px;font-weight:600}
+.run-credit span{display:block;margin-top:4px;font-size:13px;color:var(--muted)}
+.run-splits .note{margin-top:8px}
+.splits-scroll{overflow-x:auto;margin:0 -4px;padding:0 4px}
+.splits{display:block;width:100%;height:auto}
+.splits .bar{fill:var(--ctrl)}
+.splits .is-fast .bar{fill:var(--fg)}
+.splits .km{fill:var(--muted);font-size:12px;font-family:var(--font-display)}
+.splits .pace{fill:var(--fg);font-size:13px;font-weight:600;font-family:var(--font-display)}
+.splits .avg{stroke:var(--fg-2);stroke-width:1.2;stroke-dasharray:4 5}
+.runs-empty{margin-top:8px}
+@media (min-width:768px){
+  .run-cells{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .route-map.big{height:460px}
+}
+@media (min-width:1024px){
+  .runs-grid{display:grid;grid-template-columns:340px minmax(0,1fr);gap:40px;align-items:start}
+  .runs-grid > .run-list{position:sticky;top:76px;max-height:calc(100dvh - 96px);overflow:auto;padding:0 10px;margin:0 -10px}
+  .route-map.big{height:520px}
+}
+
+/* ---------- 기록: charts ---------- */
+.rec-grid{display:flex;flex-direction:column}
+.rec-intake{margin-top:8px}
+.chart.intake .ib{fill:var(--ctrl)}
+.chart.intake .io{fill:var(--fg)}
+.chart.intake .is-open rect{opacity:.45}
+.chart.intake .tg{fill:none;stroke:var(--fg-2);stroke-width:1.4;stroke-dasharray:4 4}
+.legend i.c{height:10px;width:10px;border-radius:3px;background:var(--ctrl)}
+.legend i.o{height:10px;width:10px;border-radius:3px;background:var(--fg)}
+@media (max-width:767px){ .chart.intake .tg{stroke-width:2.4} }
+@media (min-width:768px){
+  .rec-side{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1fr);gap:48px;align-items:start;margin-top:8px}
+  .rec-side > .trio{margin-top:40px;grid-template-columns:1fr;gap:18px}
+}
+
+/* ---------- 장보기: what is left ---------- */
+.stock-btn{display:inline-flex;align-items:center;gap:2px;margin-top:4px;padding:3px 0;font-size:13px;font-weight:500;color:var(--fg-2)}
+.stock-btn.is-unknown{color:var(--muted);font-weight:400}
+.stock-btn.is-low{color:var(--fg);font-weight:700}
+.stock-btn svg{color:var(--muted)}
+@media (hover:hover){ .stock-btn:hover{text-decoration:underline;text-underline-offset:4px} }
+.low-card{margin-bottom:18px}
+.low-list{display:flex;flex-direction:column;margin-top:10px}
+.low-list li{display:flex;align-items:center;gap:12px;padding:10px 0}
+.low-list .tx{flex:1;min-width:0}
+.low-list .tx b{display:block;font-size:16px;font-weight:600}
+.low-list .tx span{display:block;font-size:13.5px;color:var(--fg-2)}
+.low-list .chip-btn{text-decoration:none}
+.wheel.wide{flex-basis:120px}
+.pantry-rate{text-align:center;margin-top:10px}
+.pantry-sheet .sheet-acts{flex-wrap:wrap}
+.quiet-acts{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px}
+.quiet-acts .link-btn{text-decoration:none}
+
+/* ---------- 날씨 ---------- */
+.note-row.rain{align-items:flex-start;flex-wrap:wrap;margin-top:14px;padding:14px 0 6px}
+.note-row.rain > svg{margin-top:2px}
+.note-row.rain .acts{display:flex;align-items:center;gap:14px;flex-basis:100%;padding-left:34px}
+.s-switch{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px}
+.s-switch b{display:block;font-size:15px;font-weight:600}
+.s-switch span span{display:block;font-size:13px;color:var(--muted)}
+.switch{position:relative;flex:none;width:50px;height:30px;border-radius:999px;background:var(--surface-2);transition:background .25s var(--spring)}
+.switch i{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:var(--knob);box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .3s var(--spring),background .25s}
+.switch[aria-checked="true"]{background:var(--fg)}
+.switch[aria-checked="true"] i{transform:translateX(20px);background:var(--on-fg)}
+.switch:disabled{opacity:.6}
+.city-chips{margin-top:8px}
+.city-chips button{height:32px;padding:0 12px}
+
+/* ---------- 자주 먹는 음식 ---------- */
+.presets .pick-row .r{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-display);font-size:14px;color:var(--fg-2);white-space:nowrap}
+.presets .pick-row .r .dim{color:var(--muted)}
+.pe-field{display:flex;flex-direction:column;gap:6px;margin-top:14px;font-size:13px;color:var(--muted)}
+.pe-field .input{width:100%}
+.ie-nums.pe-nums{margin-top:14px}

@@ -4,13 +4,13 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import {
-  cycleSchedule, diffText, EXTRA, fmt, hhmm, MEALS, md, mdw, parseKey, programDate, SCEN, SCEN_ORDER,
-  type MealKey, type ShopItem,
+  cycleSchedule, daysLeftText, diffText, EXTRA, fmt, hhmm, MEALS, md, mdw, pantryName, parseKey, programDate, SCEN, SCEN_ORDER, stockText,
+  type MealKey, type PantryStatus, type ShopItem,
 } from '@diet/core';
-import { checklistSet, planMeta, setDay, setMealOverride, todayView, toggleChecklist } from '@diet/data';
+import { checklistSet, pantryView, planMeta, setDay, setMealOverride, stockAlertsFor, todayView, toggleBought, toggleChecklist } from '@diet/data';
 import { useEnv, useRefresh } from '@/lib/hooks';
 import { devicePref } from '@/lib/env';
-import { squircle, useTheme, type Theme } from '@/lib/theme';
+import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn, useToast } from '@/components/ui';
 import { Section } from '@/components/list';
@@ -156,46 +156,97 @@ function Situations({ t }: { t: Theme }) {
   );
 }
 
+/** "12개 남음 · 6일분", or a prompt to count it. Opens the count sheet. */
+function StockLine({ s, listId, t }: { s: PantryStatus | undefined; listId: string; t: Theme }) {
+  'use no memo'; // reads counts that change under a stable env
+  if (!s) return null;
+  const low = s.daysLeft != null && s.daysLeft <= 3;
+  const text = s.stock == null
+    ? '남은 양 세기'
+    : `${stockText(s.stock, s.item)} 남음${s.daysLeft != null ? ` · ${s.daysLeft <= 0 ? '오늘 떨어짐' : `${s.daysLeft}일분`}` : ''}`;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${pantryName(s.item.name)} ${text}`} hitSlop={6} onPress={() => router.push({ pathname: '/sheet/pantry', params: { id: listId } })}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4, alignSelf: 'flex-start' }}>
+      <Text style={{ color: s.stock == null ? t.muted : low ? t.fg : t.fg2, fontSize: 13, fontWeight: low ? '700' : '500' }}>{text}</Text>
+      <Icon name="chevron-right" size={9} color={t.muted} weight="semibold" />
+    </Pressable>
+  );
+}
+
 function Shop({ t }: { t: Theme }) {
+  'use no memo'; // checks and counts are mutable rows read through a stable env
   const env = useEnv();
+  const { toast } = useToast();
   const v = todayView(env);
   const shop = checklistSet(env, 'shop');
   const cycle = checklistSet(env, 'cycle');
+  const pantry = pantryView(env);
+  const alerts = stockAlertsFor(env);
+  const statusOf = (id: string) => pantry.find((p) => p.item.ids.includes(id));
   const coupang = (url: string) => (
     <Pressable accessibilityRole="link" accessibilityLabel="쿠팡에서 보기" hitSlop={8} onPress={() => void Linking.openURL(url)} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
       <Text style={{ color: t.fg2, fontSize: 13.5, fontWeight: '600' }}>쿠팡</Text>
       <Icon name="arrow-up-right" size={11} color={t.fg2} weight="semibold" />
     </Pressable>
   );
+  // checking an item means bought: its count refills (unchecking puts it back)
+  const bought = (x: ShopItem) => {
+    const r = toggleBought(env, x.id);
+    if (r.checked && r.status) toast(`${pantryName(x.name)} 샀음 · ${stockText(r.status.stock ?? 0, r.status.item)} 있습니다`, r.undo);
+    else toast(`${pantryName(x.name)} 샀음 표시를 지웠습니다`, r.undo);
+  };
   const row = (x: ShopItem) => {
     const on = shop.has(x.id);
     return (
       <View key={x.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 16 }}>
-        <Check t={t} on={on} label={`${x.name} 담음`} onPress={() => toggleChecklist(env, 'shop', x.id)} />
+        <Check t={t} on={on} label={`${x.name} 샀음`} onPress={() => bought(x)} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: on ? t.muted : t.fg, fontSize: 15, fontWeight: '500', textDecorationLine: on ? 'line-through' : 'none' }}>{x.name}</Text>
           <Text style={{ color: t.muted, fontSize: 13 }}>{x.qty} · {fmt(x.price)}원</Text>
+          <StockLine s={statusOf(x.id)} listId={x.id} t={t} />
         </View>
         {!on && coupang(x.url)}
       </View>
     );
   };
+  // a counted product is reordered by what is left, not by date
+  const allCycle = cycleSchedule(v.ctx.idx, cycle, v.shop.cycle);
+  const cycleRows = allCycle.filter((r) => statusOf(r.itemId)?.record == null);
   return (
     <>
-      <Section title="지금 한 번" inset={52}>{v.shop.now.map(row)}</Section>
-      {v.shop.week.length > 0 && <Section title="매주" inset={52}>{v.shop.week.map(row)}</Section>}
-      {v.shop.cycle.length > 0 && (
-        <Section title="날짜별 주문" inset={52}>
-          {cycleSchedule(v.ctx.idx, cycle, v.shop.cycle).map((r) => (
-            <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 16 }}>
-              <Check t={t} on={r.done} label={`${r.name} 주문함`} onPress={() => toggleChecklist(env, 'cycle', r.id)} />
+      {alerts.length > 0 && (
+        <View style={[{ marginTop: 18, padding: 18, borderRadius: R.xl, backgroundColor: t.surface, gap: 4 }, squircle]}>
+          <Text style={{ color: t.fg2, fontSize: 12.5, fontWeight: '700' }}>곧 떨어지는 것 · {alerts.length}개</Text>
+          {alerts.map((a) => (
+            <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: r.done ? t.muted : t.fg, fontSize: 15, fontWeight: '500' }}>{r.name}</Text>
-                <Text style={{ color: t.muted, fontSize: 13 }}>{mdw(programDate(env.program, r.dayNo - 1))} · {r.sub}</Text>
+                <Text lineBreakStrategyIOS="hangul-word" style={{ color: t.fg, fontSize: 16, fontWeight: '600' }}>{a.name}</Text>
+                <Text style={{ color: t.fg2, fontSize: 13 }}>{daysLeftText(a.daysLeft)} · {a.detail}</Text>
               </View>
-              {!r.done && (r.diff <= 1 ? coupang(r.url) : <Text style={{ color: t.muted, fontSize: 13 }}>{diffText(r.diff)}</Text>)}
+              <Btn small label="쿠팡" icon="arrow-up-right" onPress={() => void Linking.openURL(a.url)} />
             </View>
           ))}
+          <Text lineBreakStrategyIOS="hangul-word" style={{ color: t.muted, fontSize: 12.5, marginTop: 2 }}>받으면 아래 목록에서 체크합니다. 체크하면 한 번 산 만큼 채워집니다.</Text>
+        </View>
+      )}
+      <Section title="지금 한 번" inset={52}>{v.shop.now.map(row)}</Section>
+      {v.shop.week.length > 0 && <Section title="매주" inset={52}>{v.shop.week.map(row)}</Section>}
+      {cycleRows.length > 0 && (
+        <Section title="날짜별 주문" inset={52} footer={cycleRows.length < allCycle.length ? '남은 양을 세는 품목은 날짜 대신 남은 양으로 알려 줍니다.' : undefined}>
+          {cycleRows.map((r) => {
+            const st = statusOf(r.itemId);
+            return (
+              <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 16 }}>
+                <Check t={t} on={r.done} label={`${r.name} 주문함`} onPress={() => toggleChecklist(env, 'cycle', r.id)} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: r.done ? t.muted : t.fg, fontSize: 15, fontWeight: '500' }}>{r.name}</Text>
+                  <Text style={{ color: t.muted, fontSize: 13 }}>{mdw(programDate(env.program, r.dayNo - 1))} · {r.sub}</Text>
+                  {st && st.item.id === r.itemId && <StockLine s={st} listId={r.itemId} t={t} />}
+                </View>
+                {!r.done && (r.diff <= 1 ? coupang(r.url) : <Text style={{ color: t.muted, fontSize: 13 }}>{diffText(r.diff)}</Text>)}
+              </View>
+            );
+          })}
         </Section>
       )}
     </>
