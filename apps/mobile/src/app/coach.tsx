@@ -1,6 +1,6 @@
 // AI coach chat (modal). Same events and change cards as the web panel; text only until a photo picker is added.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Keyboard, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View, type ScrollViewInstance } from 'react-native';
+import { Keyboard, LayoutAnimation, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
@@ -27,7 +27,9 @@ export default function CoachScreen() {
   const insets = useSafeAreaInsets();
   const chat = useCoachChat(env);
   const [draft, setDraft] = useState('');
-  const [kb, setKb] = useState(false);
+  const [kbPad, setKbPad] = useState(0);
+  const [height, setHeight] = useState(0);
+  const win = useWindowDimensions();
   const scroll = useRef<ScrollViewInstance>(null);
   const stick = useRef(true);
 
@@ -35,11 +37,20 @@ export default function CoachScreen() {
   const next = snap.meals.find((m) => m.state === 'pending');
   const prompts = suggestedPrompts(next ? { key: next.key, name: next.name } : undefined, Number(snap.now.time.slice(0, 2)));
 
+  // This screen's bottom is the screen's bottom (as a page-sheet modal and as a full screen), so the keyboard
+  // covers exactly (screen height - keyboard top). KeyboardAvoidingView and measureInWindow measure inside the
+  // sheet's own coordinates and come out short by the sheet's top offset.
   useEffect(() => {
-    const a = Keyboard.addListener('keyboardWillShow', () => setKb(true));
-    const b = Keyboard.addListener('keyboardWillHide', () => setKb(false));
-    return () => { a.remove(); b.remove(); };
-  }, []);
+    const animate = (duration: number) => LayoutAnimation.configureNext({ duration: duration || 250, update: { type: LayoutAnimation.Types.keyboard } });
+    const change = Keyboard.addListener('keyboardWillChangeFrame', (e) => {
+      animate(e.duration);
+      setKbPad(Math.max(0, win.height - e.endCoordinates.screenY));
+    });
+    const hide = Keyboard.addListener('keyboardWillHide', (e) => { animate(e.duration); setKbPad(0); });
+    return () => { change.remove(); hide.remove(); };
+  }, [win.height]);
+  // As a page sheet the screen starts below the status bar; opened from a deep link it is full screen.
+  const topInset = height ? Math.max(0, insets.top - (win.height - height)) : 0;
 
   const submit = (text = draft) => {
     if (chat.busy || !text.trim()) return;
@@ -55,8 +66,8 @@ export default function CoachScreen() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: t.bg }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 20, paddingTop: 22, paddingBottom: 8 }}>
+    <View onLayout={(e) => setHeight(e.nativeEvent.layout.height)} style={{ flex: 1, backgroundColor: t.bg, paddingBottom: kbPad }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 20, paddingTop: topInset + 22, paddingBottom: 8 }}>
         <View style={{ flex: 1 }}>
           <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '600' }}>
             오늘 {fmt(snap.totals.eatenKcal)} / {fmt(snap.target.kcal)}kcal 먹음 · 단백질 {snap.totals.eatenProtein}g
@@ -109,9 +120,11 @@ export default function CoachScreen() {
         ))}
       </ScrollView>
 
-      <View style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: kb ? 8 : Math.max(insets.bottom, 12) }}>
+      <View style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: kbPad > 0 ? 8 : Math.max(insets.bottom, 12) }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, padding: 6, paddingLeft: 14, borderRadius: R.lg, ...squircle, backgroundColor: t.surface }}>
           <TextInput
+            // iOS keeps the old color on existing text when the theme flips; remount (the draft lives in state)
+            key={t.bg}
             value={draft}
             onChangeText={setDraft}
             placeholder="예: 점심에 김치찌개 먹었어"
@@ -132,7 +145,7 @@ export default function CoachScreen() {
           )}
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
