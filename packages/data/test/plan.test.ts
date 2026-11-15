@@ -53,3 +53,24 @@ describe('editable plan', () => {
     expect(after.sum.total).toBeLessThan(before.sum.total);
   });
 });
+
+describe('eating part of a meal', () => {
+  it('drops the skipped item and its numbers, in one row per slot', async () => {
+    const { eatPartial } = await import('../src');
+    const env = await makeEnv();
+    eatPartial(env, '2026-11-15', 'snack', [true, false]); // chicken yes, nuts no
+    const v = todayView(env);
+    expect(v.sum.eaten).toBe(110);
+    expect(v.sum.eatenProtein).toBe(23);
+    expect(v.entries.filter((e) => e.slot === 'snack')).toHaveLength(1);
+    expect(v.eaten.has('snack')).toBe(true);
+  });
+
+  it('checks an edited meal with the edited numbers', async () => {
+    const { toggleMeal } = await import('../src');
+    const env = await makeEnv();
+    setMealOverride(env, 'snack', { items: [{ name: '헬로틴 저염 닭가슴살', amount: '1팩' }], kcal: 110, protein: 23 });
+    toggleMeal(env, '2026-11-15', 'snack');
+    expect(todayView(env).sum.eaten).toBe(110);
+  });
+});

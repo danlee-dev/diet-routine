@@ -108,7 +108,7 @@ export function applyPlanChanges(meals: PlannedMeal[], override?: PlanOverride |
       m = {
         ...m,
         ...(o.name ? { name: o.name } : {}),
-        ...(o.time ? { time: o.time } : {}),
+        ...(o.time ? { time: o.time, ...(/^\d{1,2}:\d{2}$/.test(o.time) ? { at: Number(o.time.split(':')[0]) * 60 + Number(o.time.split(':')[1]) } : {}) } : {}),
         ...(o.items ? { items: o.items } : {}),
         ...(o.kcal != null ? { kcal: o.kcal } : {}),
         ...(o.protein != null ? { protein: o.protein } : {}),

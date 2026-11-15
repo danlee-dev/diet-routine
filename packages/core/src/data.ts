@@ -11,6 +11,9 @@ export interface PlanItem {
   amount: string;
   /** how to eat / prepare, e.g. "저지방 우유 200ml 에 타서 흔들기" */
   note?: string;
+  /** per-item estimate; items of a planned meal add up to the meal's numbers */
+  kcal?: number;
+  protein?: number;
 }
 
 export interface MealDef {
@@ -34,36 +37,36 @@ export interface ScenDef {
   over?: Partial<Record<MealKey, Partial<MealDef>>>;
 }
 
-const it = (name: string, amount: string): PlanItem => ({ name, amount });
+const it = (name: string, amount: string, kcal?: number, protein?: number): PlanItem => (kcal == null ? { name, amount } : { name, amount, kcal, protein: protein ?? 0 });
 
 export const MEALS: Record<MealKey, MealDef> = {
   breakfast: {
     icon: 'sun', name: '아침', time: '일어나서 1시간 안',
-    items: [it('달걀', '2개'), it('무가당 그릭요거트', '100g'), it('귤 (꼬마과)', '3개'), it('블랙커피', '마시고 싶으면')],
+    items: [it('달걀', '2개', 140, 12), it('무가당 그릭요거트', '100g', 95, 9), it('귤 (꼬마과)', '3개', 60, 0), it('블랙커피', '마시고 싶으면', 0, 0)],
     kcal: 295, protein: 21,
     swaps: ['닭가슴살을 먹고 싶으면 간식 닭가슴살과 바꿉니다. 달걀 2개는 간식 때 먹습니다.', '귤이 중간 크기면 2개만 먹습니다.'],
   },
   lunch: {
     icon: 'utensils', name: '점심', time: '아침 3~4시간 뒤',
-    items: [it('햇반 흑미 작은공기', '1개'), it('한끼통살 큐브', '1팩'), it('냉동 브로콜리', '150g'), it('김치 또는 저칼로리 드레싱', '조금 / 1큰술')],
+    items: [it('햇반 흑미 작은공기', '1개', 210, 5), it('한끼통살 큐브', '1팩', 165, 14), it('냉동 브로콜리', '150g', 50, 3), it('김치 또는 저칼로리 드레싱', '조금 / 1큰술', 25, 0)],
     kcal: 450, protein: 22,
     swaps: ['큐브는 간이 세서 점심에 먹습니다. 저녁에 먹으면 다음 날 붓기 쉽습니다.', '김치 대신 드레싱 1큰술로 바꿔도 됩니다.'],
   },
   snack: {
     icon: 'apple', name: '간식', time: '점심 3시간 뒤',
-    items: [it('헬로틴 저염 닭가슴살', '1팩'), it('하루견과', '1봉')],
+    items: [it('헬로틴 저염 닭가슴살', '1팩', 110, 23), it('하루견과', '1봉', 140, 6)],
     kcal: 250, protein: 29,
     swaps: ['아침 달걀과 서로 바꿔도 됩니다.', '배가 안 고프면 닭가슴살을 저녁이나 아침으로 옮깁니다. 하루 3팩만 지키면 됩니다.'],
   },
   post: {
     icon: 'dumbbell', name: '운동 후', time: '홈트 끝나고 바로',
-    items: [it('프로틴 (더블리치초콜릿)', '1스쿱'), it('저지방 우유', '200ml')],
+    items: [it('프로틴 (더블리치초콜릿)', '1스쿱', 120, 24), it('저지방 우유', '200ml', 90, 6)],
     kcal: 210, protein: 30,
     swaps: ['운동을 쉬는 날에는 간식 때 같이 마십니다.'],
   },
   dinner: {
     icon: 'moon', name: '저녁', time: '8시 전에 끝내기',
-    items: [it('헬로틴 저염 닭가슴살', '1팩'), it('샐러드 믹스', '1봉'), it('방울토마토', '10개'), it('저칼로리 드레싱', '1큰술')],
+    items: [it('헬로틴 저염 닭가슴살', '1팩', 110, 23), it('샐러드 믹스', '1봉', 20, 2), it('방울토마토', '10개', 35, 2), it('저칼로리 드레싱', '1큰술', 20, 0)],
     kcal: 185, protein: 27,
     swaps: ['8시가 넘으면 물, 아메리카노, 제로 음료만 마십니다.'],
   },
@@ -73,7 +76,7 @@ export const ORDER: MealKey[] = ['breakfast', 'lunch', 'snack', 'post', 'dinner'
 
 export const CARRY_SNACK: MealDef = {
   icon: 'backpack', name: '간식 (밖에서)', time: '점심 3시간 뒤',
-  items: [it('하루견과', '1봉 · 가방에'), it('귤', '2개 · 가방에'), it('편의점 닭가슴살', '1팩 (없으면 구운란 2개)')],
+  items: [it('하루견과', '1봉 · 가방에', 140, 6), it('귤', '2개 · 가방에', 40, 0), it('편의점 닭가슴살', '1팩 (없으면 구운란 2개)', 105, 21)],
   kcal: 285, protein: 27,
   swaps: ['견과와 귤은 상온에 둬도 되니 나가기 전에 챙깁니다.'],
 };
@@ -108,8 +111,8 @@ export const SCEN: Record<ScenId, ScenDef> = {
     rules: ['7시쯤 밖에서 편의점 닭가슴살 1팩과 구운란 1개로 저녁을 먹습니다.', '밖에서 못 먹었으면 집에 와서 9시 전에 프로틴 1스쿱을 물에 타서 마십니다.', '9시가 넘었으면 물만 마시고 잡니다.', '야식, 배달 음식, 라면은 먹지 않습니다.'],
     over: {
       snack: CARRY_SNACK,
-      post: { icon: 'glass-water', name: '프로틴', time: '집에 와서 9시 전에', items: [it('프로틴', '1스쿱'), it('물', '300ml')], kcal: 120, protein: 24, swaps: ['늦게 온 날은 홈트를 쉬고 걸음 수만 채웁니다.'] },
-      dinner: { icon: 'store', name: '저녁 (밖에서)', time: '7시쯤', items: [it('편의점 닭가슴살', '1팩'), it('구운란', '1개'), it('샐러드가 있으면', '1개')], kcal: 210, protein: 29, est: true, swaps: ['집에 와서는 더 먹지 않습니다.'] },
+      post: { icon: 'glass-water', name: '프로틴', time: '집에 와서 9시 전에', items: [it('프로틴', '1스쿱', 120, 24), it('물', '300ml', 0, 0)], kcal: 120, protein: 24, swaps: ['늦게 온 날은 홈트를 쉬고 걸음 수만 채웁니다.'] },
+      dinner: { icon: 'store', name: '저녁 (밖에서)', time: '7시쯤', items: [it('편의점 닭가슴살', '1팩', 105, 21), it('구운란', '1개', 70, 6), it('샐러드가 있으면', '1개', 35, 2)], kcal: 210, protein: 29, est: true, swaps: ['집에 와서는 더 먹지 않습니다.'] },
     },
   },
   rest: {
