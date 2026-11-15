@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 27.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "promptToConfigurePushNotifications": false
   },
   "build": {
     "preview": {
@@ -18,7 +19,7 @@
   "submit": {
     "production": {
       "ios": {
-        "appName": "\uac10\ub7c9 \ub8e8\ud2f4 \u00b7 \uac1c\uc778",
+        "appName": "감량 루틴 · 개인",
         "language": "ko",
         "sku": "diet-routine-ios",
         "ascAppId": "6835028590"
