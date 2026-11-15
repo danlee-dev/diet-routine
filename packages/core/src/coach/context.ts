@@ -1,10 +1,10 @@
 // Context snapshot for the coach: everything the model needs about "right now", computed on the device
 // from the same core functions the screens use, so the coach sees exactly the numbers on screen.
-import { ROUTINES, SCEN, type RoutineKey } from '../data';
-import type { DayRow, MealEntryRow, WeightRow, WorkoutRow } from '../db';
+import { SCEN, type RoutineDef, type RoutineKey, type WeekType } from '../data';
+import type { DayRow, MealEntryRow, PlanRow, WeightRow, WorkoutRow } from '../db';
 import { dayCtx, type Program } from '../program';
-import { adjustedTarget, applyPlanChanges, type DayAdjustment, type PlanOverride } from '../rebalance';
-import { summary, type PlannedMeal } from '../schedule';
+import type { AdjustedMeal, DayAdjustment, PlanOverride } from '../rebalance';
+import { summary } from '../schedule';
 import { clamp, hhmm, round1 } from '../util';
 import { trend, weightSeries, weightStats } from '../weight';
 import type { CoachSnapshot, SnapMeal } from './types';
@@ -13,12 +13,18 @@ export interface SnapshotInput {
   now: Date;
   program: Program;
   day: DayRow;
-  /** plan() for today's situation, before template overrides */
-  baseMeals: PlannedMeal[];
-  /** active template override (latest `plans` row) */
+  /** today's meals after plan versions and day adjustments (todayView().meals) */
+  meals: AdjustedMeal[];
+  /** plan version in effect today and where it came from */
   override: PlanOverride | null;
-  /** today's `plan_adjustments` */
+  planMeta: { from: string; source: PlanRow['source']; note: string | null } | null;
+  /** today's `plan_adjustments` and the kcal target after them */
   adjustments: DayAdjustment[];
+  target: number;
+  /** weekly schedule and routines after edits, today's session after one-day changes */
+  week: { t: WeekType; label: string }[];
+  routines: Record<RoutineKey, RoutineDef>;
+  session: WeekType;
   /** today's meal entries, already deduped per slot */
   entries: MealEntryRow[];
   weights: WeightRow[];
@@ -33,7 +39,7 @@ const r = Math.round;
 export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
   const ctx = dayCtx(i.program, i.now);
   const nowMin = i.now.getHours() * 60 + i.now.getMinutes();
-  const meals = applyPlanChanges(i.baseMeals, i.override, i.adjustments);
+  const meals = i.meals;
   const sum = summary(meals, i.entries);
 
   const snapMeals: SnapMeal[] = meals.map((m) => {
@@ -69,7 +75,8 @@ export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
     .map((w) => ({ date: w.date, type: w.type, minutes: w.duration_s != null ? r(w.duration_s / 60) : null, rounds: w.rounds }));
 
   const wp = i.workoutPlan;
-  const target = adjustedTarget(i.day.kcal_target ?? i.program.baseKcal, i.adjustments);
+  const target = i.target;
+  const routine = (k: RoutineKey) => ({ name: i.routines[k].name.slice(0, 30), focus: i.routines[k].focus.slice(0, 40), items: i.routines[k].items.slice(0, 12) });
 
   return {
     v: 1,
@@ -91,7 +98,7 @@ export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
     steps: { count: clamp(r(i.day.steps), 0, 200000), goal: i.stepsGoal },
     water: { cups: clamp(i.day.water_cups, 0, 30), goal: 8 },
     workout: {
-      planned: wp ? { routine: wp.routine, name: ROUTINES[wp.routine].name, focus: ROUTINES[wp.routine].focus, time: wp.at != null ? hhmm(wp.at) : null } : null,
+      planned: wp ? { routine: wp.routine, name: i.routines[wp.routine].name.slice(0, 30), focus: i.routines[wp.routine].focus.slice(0, 40), time: wp.at != null ? hhmm(wp.at) : null } : null,
       done: !!wp?.done,
       recent,
     },
@@ -104,13 +111,18 @@ export function buildSnapshot(i: SnapshotInput): CoachSnapshot {
       ratePerWeek: stats.ratePerWeek,
     },
     planOverride: i.override,
+    planMeta: i.planMeta ? { from: i.planMeta.from, source: i.planMeta.source, note: i.planMeta.note?.slice(0, 200) ?? null } : null,
+    week: i.week.map((d) => ({ t: d.t, label: d.label.slice(0, 10) })),
+    routines: { A: routine('A'), B: routine('B') },
+    session: i.session,
     adjustments: i.adjustments.slice(0, 40),
   };
 }
 
 /** The snapshot as the model reads it: compact JSON inside a tag, sent as user-turn data (never in the system prompt). */
 export function snapshotForModel(s: CoachSnapshot): string {
-  const { planOverride: _o, adjustments, ...rest } = s;
-  const adj = adjustments.map((a) => ({ slot: a.slot, label: a.change.label, kcal: a.change.kcal_delta, ...(a.change.target ? { target: a.change.target } : {}) }));
-  return `<context>\n${JSON.stringify({ ...rest, todayAdjustments: adj })}\n</context>`;
+  const { planOverride: _o, adjustments, week, ...rest } = s;
+  const adj = adjustments.map((a) => ({ slot: a.slot, label: a.change.label, kcal: a.change.kcal_delta, ...(a.change.workout ? { session: a.change.workout } : {}) }));
+  const days = ['일', '월', '화', '수', '목', '금', '토'];
+  return `<context>\n${JSON.stringify({ ...rest, week: week.map((d, i) => `${i}(${days[i]}): ${d.t}`), todayAdjustments: adj })}\n</context>`;
 }

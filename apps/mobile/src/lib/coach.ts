@@ -13,15 +13,17 @@ import { getSupabase } from './env';
 /** Coach endpoint. EXPO_PUBLIC_API_URL points a dev build at a local web server (the simulator reaches the Mac at localhost). */
 export const COACH_URL = `${(process.env.EXPO_PUBLIC_API_URL ?? 'https://diet-routine.vercel.app').replace(/\/$/, '')}/api/ai/chat`;
 
-// "보기": the coach screen closes and the today screen highlights this target (it can subscribe or read the pending value on focus).
-type Focus = CoachCard['focus'];
-const focusListeners = new Set<(f: Focus) => void>();
-let pendingFocus: Focus | null = null;
-export const onCoachFocus = (fn: (f: Focus) => void): (() => void) => { focusListeners.add(fn); return () => { focusListeners.delete(fn); }; };
-export const takeCoachFocus = (): Focus | null => { const f = pendingFocus; pendingFocus = null; return f; };
-export function emitCoachFocus(f: Focus) {
-  pendingFocus = f;
-  for (const fn of focusListeners) fn(f);
+// "보기": the coach screen closes, routes to the plan or today tab, and that screen highlights the target
+// (plan:meal:<key>, plan:workout:week:<dow>, plan:workout:routine:<A|B>, today:meal:<key>, today:workout).
+// Screens subscribe with onCoachFocus or read the pending value with takeCoachFocus when they gain focus.
+type Target = CoachCard['target'];
+const focusListeners = new Set<(t: Target) => void>();
+let pendingFocus: Target | null = null;
+export const onCoachFocus = (fn: (t: Target) => void): (() => void) => { focusListeners.add(fn); return () => { focusListeners.delete(fn); }; };
+export const takeCoachFocus = (): Target | null => { const t = pendingFocus; pendingFocus = null; return t; };
+export function emitCoachFocus(t: Target) {
+  pendingFocus = t;
+  for (const fn of focusListeners) fn(t);
 }
 
 async function accessToken(): Promise<string | null> {

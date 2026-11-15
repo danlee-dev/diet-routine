@@ -13,10 +13,22 @@ export const MealKeyZ = z.enum(['breakfast', 'lunch', 'snack', 'post', 'dinner']
 export const SlotZ = z.enum(['breakfast', 'lunch', 'snack', 'post', 'dinner', 'extra']);
 export const ScenIdZ = z.enum(['home', 'late', 'out', 'eatout', 'lateHome', 'rest']);
 
+export const WeekTypeZ = z.enum(['A', 'B', 'walk', 'light', 'rest']);
+export const RoutineKeyZ = z.enum(['A', 'B']);
+const DOW = ['0', '1', '2', '3', '4', '5', '6'] as const;
+
 export const PlanItemZ = z.object({
   name: text(60).min(1),
   amount: text(60),
   note: text(160).optional(),
+  kcal: num(0, 3000).optional(),
+  protein: num(0, 300).optional(),
+});
+
+export const RoutineItemZ = z.object({
+  name: text(40).min(1),
+  n: z.number().int().min(1).max(500),
+  unit: text(20).min(1),
 });
 
 export const MealOverrideZ = z.object({
@@ -29,29 +41,26 @@ export const MealOverrideZ = z.object({
   note: text(160).optional(),
 });
 
+export const WorkoutOverrideZ = z.object({
+  week: z.partialRecord(z.enum(DOW), WeekTypeZ).optional(),
+  routines: z.partialRecord(RoutineKeyZ, z.object({ items: z.array(RoutineItemZ).min(1).max(12) })).optional(),
+});
+
 export const PlanOverrideZ = z.object({
   meals: z.partialRecord(MealKeyZ, MealOverrideZ).optional(),
+  workout: WorkoutOverrideZ.optional(),
 });
 
-export const WorkoutChangeZ = z.object({
-  action: z.enum(['swap', 'lighter', 'skip', 'walk_instead']),
-  routine: z.enum(['A', 'B']).optional(),
-  rounds: z.number().int().min(1).max(6).optional(),
-  minutes: z.number().int().min(5).max(180).optional(),
-});
-
-/** AdjustmentChange from core/rebalance plus the optional coach fields kept in the same jsonb column. */
+/** AdjustmentChange from core/rebalance. */
 export const AdjustmentChangeZ = z.object({
-  kind: z.enum(['cut', 'add', 'carry', 'edit']),
+  kind: z.enum(['cut', 'add', 'carry', 'edit', 'workout']),
   kcal_delta: num(-3000, 3000),
   protein_delta: num(-300, 300).optional(),
   label: text(80).min(1),
   cut_id: text(60).optional(),
   items: z.array(PlanItemZ).max(12).optional(),
-  /** set when the adjustment changes today's workout instead of a meal */
-  target: z.enum(['workout']).optional(),
-  workout: WorkoutChangeZ.optional(),
-  steps_delta: z.number().int().min(-20000).max(20000).optional(),
+  /** kind 'workout': today's session instead of the weekly plan */
+  workout: WeekTypeZ.optional(),
 });
 
 export const DayAdjustmentZ = z.object({
@@ -126,6 +135,13 @@ export const SnapshotZ = z.object({
     ratePerWeek: num(-20, 20).nullable(),
   }),
   planOverride: PlanOverrideZ.nullable(),
+  /** where the plan in effect came from ("코치가 바꿈" + note) */
+  planMeta: z.object({ from: dateZ, source: z.enum(['default', 'ai', 'user']), note: text(200).nullable() }).nullable(),
+  /** weekly schedule after edits, index = weekday (0 = Sunday) */
+  week: z.array(z.object({ t: WeekTypeZ, label: text(10) })).length(7),
+  routines: z.record(RoutineKeyZ, z.object({ name: text(30), focus: text(40), items: z.array(RoutineItemZ).max(12) })),
+  /** today's session after one-day changes */
+  session: WeekTypeZ,
   adjustments: z.array(DayAdjustmentZ).max(40),
 });
 
@@ -218,14 +234,20 @@ export const SkipMealInputZ = z.object({
   reason: text(200).optional(),
 });
 
+// One flat object (the API does not accept oneOf/anyOf at the top level of a tool schema); the refinement
+// below enforces which fields each scope needs before the server runs it.
 export const AdjustWorkoutInputZ = z.object({
-  action: z.enum(['swap', 'lighter', 'skip', 'walk_instead']).describe('swap: 다른 루틴으로, lighter: 라운드·강도 낮춤, skip: 쉼, walk_instead: 걷기로'),
-  routine: z.enum(['A', 'B']).optional().describe('swap 일 때 바꿀 루틴 (A 상체·복근, B 하체·전신)'),
-  rounds: z.number().int().min(1).max(6).optional(),
-  minutes: z.number().int().min(5).max(120).optional(),
-  steps_delta: z.number().int().min(-5000).max(10000).optional().describe('오늘 걸음 목표 증감'),
-  label: text(60).min(1).describe('카드에 보일 문구, 예: "홈트 B 대신 상체 A 2라운드"'),
+  scope: z.enum(['today', 'week', 'routine']).describe('today: 오늘 하루만 다른 운동 (주간 계획은 그대로). week: 요일별 주간 계획 (오늘부터 계속). routine: 홈트 A 또는 B 의 동작과 기본 횟수'),
+  session: WeekTypeZ.optional().describe('scope=today 일 때 오늘 할 것. A 상체·복근, B 하체·전신, walk 걷기만, light 가볍게(A 3라운드), rest 쉬기'),
+  days: z.array(z.object({ dow: z.number().int().min(0).max(6).describe('0=일요일 ... 6=토요일'), session: WeekTypeZ })).min(1).max(7).optional().describe('scope=week 일 때 바꿀 요일들'),
+  routine: RoutineKeyZ.optional().describe('scope=routine 일 때 바꿀 루틴'),
+  items: z.array(RoutineItemZ).min(1).max(12).optional().describe('scope=routine 일 때 루틴의 동작 전체 목록, 순서대로 (주차별 배율은 앱이 적용)'),
+  title: text(60).min(1).describe('카드 제목, 예: "오늘은 하체 대신 걷기"'),
   reason: text(200),
+}).superRefine((v, ctx) => {
+  if (v.scope === 'today' && !v.session) ctx.addIssue({ code: 'custom', path: ['session'], message: 'scope today needs session' });
+  if (v.scope === 'week' && !v.days?.length) ctx.addIssue({ code: 'custom', path: ['days'], message: 'scope week needs days' });
+  if (v.scope === 'routine' && (!v.routine || !v.items?.length)) ctx.addIssue({ code: 'custom', path: ['items'], message: 'scope routine needs routine and items' });
 });
 
 // ---------------------------------------------------------------- change cards (server -> client)
@@ -244,9 +266,23 @@ export const CardRowZ = z.discriminatedUnion('op', [
     note: text(160).nullable(),
   }),
   z.object({ op: z.literal('skip_meal'), date: dateZ, slot: MealKeyZ }),
-  z.object({ op: z.literal('plan'), effective_from: dateZ, override: PlanOverrideZ, note: text(200) }),
-  z.object({ op: z.literal('adjustment'), date: dateZ, slot: MealKeyZ.nullable(), change: AdjustmentChangeZ, reason: text(300) }),
+  /** a patch folded onto the plan in effect at apply time, saved as a plan version from `effective_from` */
+  z.object({
+    op: z.literal('plan'),
+    effective_from: dateZ,
+    /** full override per changed meal (null clears it back to the built-in meal) */
+    meals: z.partialRecord(MealKeyZ, MealOverrideZ.nullable()).optional(),
+    week: z.partialRecord(z.enum(DOW), WeekTypeZ).optional(),
+    routines: z.partialRecord(RoutineKeyZ, z.array(RoutineItemZ).min(1).max(12)).optional(),
+    note: text(80),
+  }),
+  z.object({ op: z.literal('adjustment'), date: dateZ, slot: SlotZ.nullable(), change: AdjustmentChangeZ, reason: text(300) }),
+  /** today's session only (setTodaySession) */
+  z.object({ op: z.literal('session'), date: dateZ, session: WeekTypeZ, reason: text(300) }),
 ]);
+
+/** Where "보기" goes: plan:meal:<key>, plan:workout:week:<dow>, plan:workout:routine:<A|B>, today:meal:<key>, today:workout */
+export const CardTargetZ = z.string().regex(/^(plan:meal:(breakfast|lunch|snack|post|dinner)|plan:workout:week:[0-6]|plan:workout:routine:[AB]|today:meal:(breakfast|lunch|snack|post|dinner|extra)|today:workout)$/);
 
 export const CardZ = z.object({
   id: text(64).min(1),
@@ -261,8 +297,10 @@ export const CardZ = z.object({
     target: num(0, 20000),
     proteinFloor: num(0, 300),
   }),
-  /** what the "보기" link highlights on the today screen */
-  focus: z.object({ slot: SlotZ.nullable(), workout: z.boolean().optional() }),
+  /** what the "보기" link opens and highlights */
+  target: CardTargetZ,
+  /** the assistant chat_messages row this card belongs to (stored as chat_message_id on plan rows) */
+  messageId: z.uuid().optional(),
   note: text(300).optional(),
   rows: z.array(CardRowZ).min(1).max(12),
 });

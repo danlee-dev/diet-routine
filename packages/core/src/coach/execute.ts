@@ -4,8 +4,8 @@
 // applied, so "log lunch -> rebalance" sees the logged lunch.
 import type { z } from 'zod';
 import { SKIP_ADVICE } from '../schedule';
-import type { MealKey } from '../data';
-import { proposalToAdjustments, rebalance, type AdjustedMeal, type MealOverride, type PlanOverride } from '../rebalance';
+import type { MealKey, RoutineDef, WeekType } from '../data';
+import { proposalToAdjustments, rebalance, WEEK_LABEL, type AdjustedMeal, type MealOverride } from '../rebalance';
 import { addDays, fmt, keyOf, parseKey } from '../util';
 import {
   AdjustWorkoutInputZ, LogFoodInputZ, ProposeDayAdjustmentInputZ, ProposePlanChangeInputZ, RebalanceTodayInputZ, SkipMealInputZ,
@@ -70,7 +70,7 @@ export function toolStatusLabel(name: string, input?: Record<string, unknown>): 
     case 'propose_day_adjustment': return slot ? `오늘 ${slot} 조정안 만드는 중` : '오늘 식단 조정안 만드는 중';
     case 'rebalance_today': return '남은 끼니 다시 맞추는 중';
     case 'skip_meal': return slot ? `${slot} 건너뛰기 정리 중` : '건너뛴 끼니 정리 중';
-    case 'adjust_workout': return '운동 조정안 만드는 중';
+    case 'adjust_workout': return input?.scope === 'routine' ? '홈트 구성 바꿀 안 만드는 중' : input?.scope === 'week' ? '주간 운동 계획 바꿀 안 만드는 중' : input?.scope === 'today' ? '오늘 운동 조정안 만드는 중' : '운동 계획 살펴보는 중';
     case 'web_search': return typeof input?.query === 'string' ? `웹 검색 중: ${input.query}` : '웹 검색 중';
     default: return '처리 중';
   }
@@ -80,7 +80,8 @@ export class CoachSession {
   readonly snap: CoachSnapshot;
   private seq = 0;
 
-  constructor(snapshot: CoachSnapshot, private readonly cardPrefix: string) {
+  /** @param messageId the assistant chat_messages row id; cards carry it so applied plan rows link back to the chat */
+  constructor(snapshot: CoachSnapshot, private readonly cardPrefix: string, private readonly messageId?: string) {
     this.snap = structuredClone(snapshot);
   }
 
@@ -120,9 +121,10 @@ export class CoachSession {
       pending_meals: this.snap.meals.filter((m) => m.state === 'pending').map((m) => m.key),
     };
   }
-  private card(c: Omit<CoachCard, 'id' | 'totals' | 'delta'>, before: { kcal: number; protein: number }, after = this.totals()): CoachCard {
+  private card(c: Omit<CoachCard, 'id' | 'totals' | 'delta' | 'messageId'>, before: { kcal: number; protein: number }, after = this.totals()): CoachCard {
     return {
       id: this.nextId(),
+      ...(this.messageId ? { messageId: this.messageId } : {}),
       ...c,
       delta: { kcal: after.kcal - before.kcal, protein: after.protein - before.protein },
       totals: { before, after, target: R(this.snap.target.kcal), proteinFloor: this.snap.target.proteinFloor },
@@ -183,7 +185,7 @@ export class CoachSession {
       kind: 'log_food',
       title: `${SLOT_NAME[input.slot]} 기록: ${input.name}`,
       lines,
-      focus: { slot: input.slot },
+      target: `today:meal:${input.slot}`,
       ...(basisNote ? { note: `${basisNote}로 계산했습니다` } : input.confidence < 0.6 ? { note: '사진과 설명으로 추정한 값이라 오차가 클 수 있습니다' } : {}),
       rows: [row],
     }, before, after);
@@ -215,7 +217,7 @@ export class CoachSession {
         { label: m.name, before: `${kcalText(prev.kcal)} · 단백질 ${R(prev.protein)}g`, after: '건너뜀 · 0kcal' },
         { label: '오늘 단백질', before: `${before.protein}g`, after: `${after.protein}g / 하한 ${floor}g` },
       ],
-      focus: { slot: input.slot },
+      target: `today:meal:${input.slot}`,
       note: advice,
       rows: [{ op: 'skip_meal', date: this.today, slot: input.slot }],
     }, before, after);
@@ -252,9 +254,6 @@ export class CoachSession {
       change: adj.change,
       reason: input.reason,
     }));
-    if (p.stepsBonus) {
-      rows.push({ op: 'adjustment', date: this.dateAt(1), slot: null, change: { kind: 'edit', kcal_delta: 0, label: `걸음 목표 +${fmt(p.stepsBonus)}`, steps_delta: p.stepsBonus }, reason: input.reason });
-    }
     const lines: CoachCard['lines'] = [];
     for (const c of p.cuts) {
       const m = this.meal(c.slot);
@@ -268,7 +267,6 @@ export class CoachSession {
     }
     const dayName = ['오늘', '내일', '모레', '글피'];
     for (const c of p.carry) lines.push({ label: dayName[c.offset] ?? `${c.offset}일 뒤`, after: `${c.kcal}kcal 덜 먹기` });
-    if (p.stepsBonus) lines.push({ label: '내일 걸음', after: `목표 +${fmt(p.stepsBonus)}보` });
     for (const r of rows) if (r.op === 'adjustment' && r.date === this.today) s.adjustments.push({ slot: r.slot, change: r.change, reason: r.reason, source: 'rebalance' });
     s.totals.projectedKcal = p.after.total;
     s.totals.projectedProtein = p.after.protein;
@@ -277,7 +275,7 @@ export class CoachSession {
       kind: 'rebalance',
       title: '남은 끼니 다시 맞추기',
       lines,
-      focus: { slot: p.cuts[0]?.slot ?? p.proteinAdds[0]?.slot ?? null },
+      target: `today:meal:${p.cuts[0]?.slot ?? p.proteinAdds[0]?.slot ?? 'dinner'}`,
       note: p.summary,
       rows,
     }, before, after);
@@ -288,7 +286,8 @@ export class CoachSession {
         card_id: card.id, over_target_before: p.over, summary: p.summary,
         cuts: p.cuts.map((c) => ({ slot: c.slot, label: c.label, kcal: -c.kcal })),
         protein_adds: p.proteinAdds.map((a) => ({ slot: a.slot, label: a.label, kcal: a.kcal, protein: a.protein })),
-        carry_next_days: p.carry, steps_bonus_tomorrow: p.stepsBonus,
+        carry_next_days: p.carry,
+        ...(p.stepsBonus ? { suggestion: `내일 ${fmt(p.stepsBonus)}보 더 걷기를 말로 권하세요 (카드에는 없음)` } : {}),
         day: this.dayResult(before), note: APPLY_NOTE,
       },
     };
@@ -327,7 +326,7 @@ export class CoachSession {
       kind: 'day_adjustment',
       title: input.slot ? `오늘 ${SLOT_NAME[input.slot]}: ${input.label}` : `오늘 목표: ${input.label}`,
       lines,
-      focus: { slot: input.slot },
+      target: `today:meal:${input.slot ?? 'dinner'}`,
       note: '오늘만 바뀌고 식단표는 그대로입니다',
       rows: [{ op: 'adjustment', date: this.today, slot: input.slot, change, reason: input.reason }],
     }, before, after);
@@ -339,7 +338,7 @@ export class CoachSession {
     const s = this.snap;
     const effectiveFrom = input.effective === 'today' ? this.today : this.dateAt(1);
     const prevMeals = { ...(s.planOverride?.meals ?? {}) };
-    const nextMeals: NonNullable<PlanOverride['meals']> = { ...prevMeals };
+    const patch: Partial<Record<MealKey, MealOverride>> = {};
     const lines: CoachCard['lines'] = [];
     let planDelta = { kcal: 0, protein: 0 };
     let todayDelta = { kcal: 0, protein: 0 };
@@ -363,7 +362,7 @@ export class CoachSession {
           note: c.note ?? prev.note ?? input.title,
         };
       }
-      nextMeals[c.slot] = next;
+      patch[c.slot] = next;
 
       const curK = m?.kcal ?? 0, curP = m?.protein ?? 0;
       const newK = c.remove ? 0 : c.kcal != null ? R(c.kcal) : curK;
@@ -380,8 +379,7 @@ export class CoachSession {
         else Object.assign(m, { ...(c.name ? { name: c.name } : {}), ...(c.time ? { time: c.time } : {}), ...(c.items ? { items: c.items } : {}), kcal: newK, protein: newP, edited: next.note });
       }
     }
-    const override: PlanOverride = { meals: nextMeals };
-    s.planOverride = override;
+    s.planOverride = { ...s.planOverride, meals: { ...prevMeals, ...patch } };
 
     const before = input.effective === 'today' ? this.totals() : planBefore;
     if (input.effective === 'today') this.shift(todayDelta.kcal, todayDelta.protein);
@@ -395,11 +393,11 @@ export class CoachSession {
       kind: 'plan_change',
       title: input.title,
       lines,
-      focus: { slot: input.changes[0]!.slot },
+      target: `plan:meal:${input.changes[0]!.slot}`,
       note: low
         ? `단백질이 하한 ${floor}g 아래(${planProteinAfter}g)로 내려갑니다. ${input.effective === 'today' ? '오늘부터' : '내일부터'} 식단표에 적용됩니다`
         : `${input.effective === 'today' ? '오늘부터' : '내일부터'} 식단표에 적용됩니다`,
-      rows: [{ op: 'plan', effective_from: effectiveFrom, override, note: input.reason }],
+      rows: [{ op: 'plan', effective_from: effectiveFrom, meals: patch, note: input.title }],
     }, before, after);
     return {
       card,
@@ -416,29 +414,67 @@ export class CoachSession {
 
   // ------------------------------------------------------------ adjust_workout
   private adjustWorkout(input: AdjustWorkoutInput): ToolOutcome {
-    const planned = this.snap.workout.planned;
+    const s = this.snap;
     const before = this.totals();
-    const routineName = input.routine === 'A' ? '홈트 A (상체·복근)' : input.routine === 'B' ? '홈트 B (하체·전신)' : null;
-    const detail = [
-      input.action === 'skip' ? '오늘은 쉼' : input.action === 'walk_instead' ? '걷기로 대체' : routineName,
-      input.rounds ? `${input.rounds}라운드` : null,
-      input.minutes ? `${input.minutes}분` : null,
-    ].filter(Boolean).join(' · ');
-    const change = {
-      kind: 'edit' as const, kcal_delta: 0, label: input.label, target: 'workout' as const,
-      workout: { action: input.action, ...(input.routine ? { routine: input.routine } : {}), ...(input.rounds ? { rounds: input.rounds } : {}), ...(input.minutes ? { minutes: input.minutes } : {}) },
-      ...(input.steps_delta ? { steps_delta: input.steps_delta } : {}),
-    };
-    const lines: CoachCard['lines'] = [{ label: '오늘 운동', before: planned ? `${planned.name} · ${planned.focus}` : '계획된 홈트 없음', after: detail ? `${input.label} (${detail})` : input.label }];
-    if (input.steps_delta) lines.push({ label: '걸음 목표', before: `${fmt(this.snap.steps.goal)}보`, after: `${fmt(this.snap.steps.goal + input.steps_delta)}보` });
-    this.snap.adjustments.push({ slot: null, change, reason: input.reason, source: 'ai' });
+    const DAY = ['일', '월', '화', '수', '목', '금', '토'];
+    const sessionText = (t: WeekType) => (t === 'A' || t === 'B' ? `홈트 ${t} · ${s.routines[t].focus}` : t === 'light' ? '가볍게 (홈트 A 3라운드)' : WEEK_LABEL[t]);
+    const itemsLine = (items: RoutineDef['items']) => items.map((x) => `${x.name} ${x.n}${x.unit}`).join(' · ');
+
+    if (input.scope === 'today') {
+      const next = input.session!;
+      const was = s.session;
+      if (was === next) return this.err(`오늘은 이미 ${sessionText(was)} 입니다.`);
+      s.session = next;
+      const card = this.card({
+        kind: 'workout',
+        title: input.title,
+        lines: [{ label: '오늘 운동', before: sessionText(was), after: sessionText(next) }],
+        target: 'today:workout',
+        note: '오늘만 바뀌고 주간 계획은 그대로입니다',
+        rows: [{ op: 'session', date: this.today, session: next, reason: input.reason }],
+      }, before);
+      return { card, doneLabel: '오늘 운동 조정안 만듦', result: { card_id: card.id, session_before: was, session_after: next, note: APPLY_NOTE } };
+    }
+
+    if (input.scope === 'week') {
+      const week: Partial<Record<'0' | '1' | '2' | '3' | '4' | '5' | '6', WeekType>> = {};
+      const lines: CoachCard['lines'] = [];
+      const days = input.days!;
+      for (const d of days) {
+        const was = s.week[d.dow]!.t;
+        if (was === d.session) continue;
+        week[String(d.dow) as '0'] = d.session;
+        lines.push({ label: `${DAY[d.dow]}요일`, before: sessionText(was), after: sessionText(d.session) });
+        s.week[d.dow] = { t: d.session, label: WEEK_LABEL[d.session] };
+        if (d.dow === s.now.dow && !s.adjustments.some((a) => a.change.kind === 'workout')) s.session = d.session;
+      }
+      if (!lines.length) return this.err('바뀌는 요일이 없습니다. 지금 주간 계획과 같습니다.');
+      s.planOverride = { ...s.planOverride, workout: { ...s.planOverride?.workout, week: { ...s.planOverride?.workout?.week, ...week } } };
+      const first = days.find((d) => week[String(d.dow) as '0'])!.dow;
+      const card = this.card({
+        kind: 'workout',
+        title: input.title,
+        lines,
+        target: `plan:workout:week:${first}`,
+        note: '오늘부터 주간 운동 계획에 적용됩니다',
+        rows: [{ op: 'plan', effective_from: this.today, week, note: input.title }],
+      }, before);
+      return { card, doneLabel: '주간 운동 계획 변경안 만듦', result: { card_id: card.id, week_after: s.week.map((d) => d.t), note: APPLY_NOTE } };
+    }
+
+    const key = input.routine!;
+    const items = input.items!;
+    const was = s.routines[key].items;
+    s.routines[key] = { ...s.routines[key], items };
+    s.planOverride = { ...s.planOverride, workout: { ...s.planOverride?.workout, routines: { ...s.planOverride?.workout?.routines, [key]: { items } } } };
     const card = this.card({
       kind: 'workout',
-      title: input.label,
-      lines,
-      focus: { slot: null, workout: true },
-      rows: [{ op: 'adjustment', date: this.today, slot: null, change, reason: input.reason }],
+      title: input.title,
+      lines: [{ label: `홈트 ${key}`, before: itemsLine(was), after: itemsLine(items) }],
+      target: `plan:workout:routine:${key}`,
+      note: '기본 횟수입니다. 3주차부터는 앱이 1.2배로 늘립니다',
+      rows: [{ op: 'plan', effective_from: this.today, routines: { [key]: items }, note: input.title }],
     }, before);
-    return { card, doneLabel: '운동 조정안 만듦', result: { card_id: card.id, workout_before: planned, workout_after: change.workout, steps_goal_after: this.snap.steps.goal + (input.steps_delta ?? 0), note: APPLY_NOTE } };
+    return { card, doneLabel: '홈트 구성 변경안 만듦', result: { card_id: card.id, routine: key, items_after: items, note: APPLY_NOTE } };
   }
 }

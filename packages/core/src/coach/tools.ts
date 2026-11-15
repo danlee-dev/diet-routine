@@ -16,7 +16,7 @@ const DESCRIPTIONS: Record<CoachToolName, string> = {
     + 'For a nutrition label, pass the label numbers with their basis (per 100 g or per serving) and the amount eaten; the server does the multiplication. '
     + 'Check whether the label is per 100 g, per serving or per whole package before choosing the basis. Returns the new projected day total. Does not save: it shows a change card the user approves.',
   propose_plan_change:
-    'Change the meal plan template from today or tomorrow on: remove a meal, replace or rename items, edit amounts or how-to-eat notes, change the timing text. '
+    'Change the meal plan template from today or tomorrow on: remove a meal, replace or rename items, edit amounts or how-to-eat notes, change the time ("18:30" sets the clock time, other text only the label). '
     + 'Pass the full item list for a meal whose items change, and new kcal/protein when the change alters them (keep them when only notes change). '
     + 'Returns the plan totals before and after and whether protein drops under the floor. Does not save: it shows a change card.',
   propose_day_adjustment:
@@ -27,7 +27,8 @@ const DESCRIPTIONS: Record<CoachToolName, string> = {
   skip_meal:
     'Mark a planned meal as skipped (0 kcal). Returns the protein gap and what to do about it. Does not save: it shows a change card.',
   adjust_workout:
-    'Change today\'s home workout: swap to the other routine, make it lighter, skip it, or walk instead, optionally changing today\'s step goal. Does not save: it shows a change card.',
+    'Change the workout plan. scope "today": today\'s session only ("오늘 하체 대신 걷기"). scope "week": which session each weekday gets from today on (A upper body and core, B lower body, walk, light = A with 3 rounds, rest). '
+    + 'scope "routine": the exercises and base reps of routine A or B (pass the full list in order; the app scales reps by week). Does not save: it shows a change card.',
 };
 
 const toSchema = (s: z.ZodType): CoachToolDef['input_schema'] => {

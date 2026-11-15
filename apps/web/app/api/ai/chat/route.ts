@@ -43,6 +43,7 @@ export async function POST(req: Request): Promise<Response> {
   await db.from('chat_threads').upsert({ id: input.threadId, title: input.message.slice(0, 40) || '사진' }, { onConflict: 'id', ignoreDuplicates: true });
   await db.from('chat_messages').insert({ thread_id: input.threadId, role: 'user', content: { text: input.message, images: input.images.length } });
 
+  const assistantId = crypto.randomUUID();
   let seq = 0;
   let open = true;
   const stream = new ReadableStream<Uint8Array>({
@@ -51,10 +52,10 @@ export async function POST(req: Request): Promise<Response> {
       const send = (e: CoachEvent) => { if (open) controller.enqueue(sseFrame(e, ++seq)); };
       const ping = setInterval(() => { if (open) controller.enqueue(ssePing()); }, 15_000);
       try {
-        const result = await runCoachTurn(input, send, req.signal);
+        const result = await runCoachTurn(input, send, req.signal, assistantId);
         send({ type: 'done', stopReason: result.stopReason });
         if (result.text || result.cards.length) {
-          await db.from('chat_messages').insert({ thread_id: input.threadId, role: 'assistant', content: { text: result.text, cards: result.cards, usage: result.usage } });
+          await db.from('chat_messages').insert({ id: assistantId, thread_id: input.threadId, role: 'assistant', content: { text: result.text, cards: result.cards, usage: result.usage } });
         }
       } catch (err) {
         if (req.signal.aborted) { /* client went away: stop quietly */ }

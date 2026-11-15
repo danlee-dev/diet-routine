@@ -24,16 +24,24 @@ export function CoachButton({ onClick }: { onClick: () => void }) {
   return <button type="button" className="kbtn" onClick={onClick}><MessageCircle {...ICON} className="lucide" />코치</button>;
 }
 
-/** Jump to the today view and briefly outline the changed meal (or the workout row). */
-function focusToday(focus: CoachCard['focus'], flash: string) {
-  if (location.hash.slice(1) !== 'today') location.hash = 'today';
-  window.dispatchEvent(new CustomEvent('coach:focus', { detail: focus }));
+/**
+ * "보기": go to the screen a card changed and briefly outline the changed row.
+ * Targets: plan:meal:<key>, plan:workout:week:<dow>, plan:workout:routine:<A|B>, today:meal:<key>, today:workout.
+ * Screens mark rows with data-coach-target="<target>"; the today timeline also works without it (data-slot or meal name).
+ */
+function openTarget(target: string, flash: string) {
+  const view = target.startsWith('plan:') ? 'plan' : 'today';
+  if (location.hash.slice(1) !== view) location.hash = view;
+  window.dispatchEvent(new CustomEvent('coach:focus', { detail: { target } }));
   const find = (): Element | null => {
-    if (focus.workout) return document.querySelector('[data-coach-target="workout"]') ?? document.querySelector('.tl-item.k-workout');
-    if (!focus.slot || focus.slot === 'extra') return null;
-    const exact = document.querySelector(`[data-slot="${focus.slot}"]`);
+    const marked = document.querySelector(`[data-coach-target="${CSS.escape(target)}"]`);
+    if (marked) return marked;
+    if (target === 'today:workout') return document.querySelector('.tl-item.k-workout');
+    const meal = /^today:meal:(\w+)$/.exec(target)?.[1];
+    if (!meal || meal === 'extra') return null;
+    const exact = document.querySelector(`[data-slot="${meal}"]`);
     if (exact) return exact;
-    const name = SLOT_NAME[focus.slot]!;
+    const name = SLOT_NAME[meal]!;
     return Array.from(document.querySelectorAll('.tl-item')).find((el) => el.querySelector('.tl-main')?.textContent?.trim().startsWith(name)) ?? null;
   };
   let tries = 0;
@@ -114,7 +122,7 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
     requestAnimationFrame(autosize);
   };
 
-  const view = (focus: CoachCard['focus']) => { onClose(); focusToday(focus, s.flash!); };
+  const view = (target: string) => { onClose(); openTarget(target, s.flash!); };
   const login = () => { onClose(); overlay.open(<SyncSheet />); };
 
   return (
@@ -216,7 +224,7 @@ function Reply({ turn, onApply, onUndo, onView, onLogin, onRetry }: {
   turn: AssistantTurn;
   onApply: (c: CoachCard) => string | null;
   onUndo: (cardId: string) => void;
-  onView: (f: CoachCard['focus']) => void;
+  onView: (target: string) => void;
   onLogin: () => void;
   onRetry: () => void;
 }) {
@@ -240,7 +248,7 @@ function Reply({ turn, onApply, onUndo, onView, onLogin, onRetry }: {
 
 function Part({ part, live, turn, onApply, onUndo, onView }: {
   part: TurnPart; live: boolean; turn: AssistantTurn;
-  onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (f: CoachCard['focus']) => void;
+  onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (target: string) => void;
 }) {
   switch (part.kind) {
     case 'steps': return <Steps steps={part.steps} live={live} seconds={live ? undefined : turnSeconds(turn)} />;
@@ -302,7 +310,7 @@ const signed = (n: number, unit: string) => `${n > 0 ? '+' : n < 0 ? '−' : ''}
 
 function Card({ card, state, onApply, onUndo, onView }: {
   card: CoachCard; state: 'idle' | 'applied' | 'undone';
-  onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (f: CoachCard['focus']) => void;
+  onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (target: string) => void;
 }) {
   const [err, setErr] = useState<string | null>(null);
   const applied = state === 'applied';
@@ -345,7 +353,7 @@ function Card({ card, state, onApply, onUndo, onView }: {
         ) : (
           <button type="button" className={`btn-primary pill ${s.applyBtn}`} onClick={() => setErr(onApply(card))}>적용</button>
         )}
-        <button type="button" className={s.viewBtn} onClick={() => onView(card.focus)}>보기<ArrowUpRight size={15} aria-hidden /></button>
+        <button type="button" className={s.viewBtn} onClick={() => onView(card.target)}>보기<ArrowUpRight size={15} aria-hidden /></button>
       </div>
     </article>
   );

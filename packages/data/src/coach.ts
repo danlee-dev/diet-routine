@@ -1,79 +1,33 @@
 // AI coach on the device: build the context snapshot from the local store, and apply / undo change cards.
-// Cards come from the server (model-influenced), so they are validated again here before any row is written.
-//
-// Row formats this file writes (the today screen reads the same ones):
-// - plans:            { id, effective_from, slots: PlanOverride, scenarios: null, source: 'ai', note }
-//                     The newest row (effective_from <= date, then updated_at) is the whole active override.
-//                     Each coach change writes a new row containing the merged override, so undo = delete that row.
-// - plan_adjustments: { id, date, slot, change: AdjustmentChange (+ target/workout/steps_delta), reason, source: 'ai' }
-// - meal_entries:     replace / extra / skip rows, same shapes as logFood and skipMeal.
-import { plan, type DayAdjustment, type MealEntryRow, type PlanOverride, type Slot, type WeightRow, type WorkoutRow } from '@diet/core';
-import { buildSnapshot, CardZ, DayAdjustmentZ, PlanOverrideZ, type CardRow, type CoachCard, type CoachSnapshot } from '@diet/core/coach';
-import { dayRow, entriesFor, skipMeal, todayView, type Env, type Undo } from './model';
+// Cards come from the server (model-influenced), so they are validated again here before anything is written.
+// Plan and adjustment rows go through the shared plan API (plan.ts) with source 'ai', the card title as the
+// note and the chat message id, so the plan screens can show "코치가 바꿈" and link back to the conversation.
+import {
+  keyOf, withMeal, withRoutineItems, withWeekDay,
+  type MealEntryRow, type MealKey, type MealOverride, type PlanOverride, type RoutineKey, type WeightRow, type WorkoutRow,
+} from '@diet/core';
+import { buildSnapshot, CardZ, type CardRow, type CoachCard, type CoachSnapshot } from '@diet/core/coach';
+import { entriesFor, skipMeal, todayView, type Env, type Undo } from './model';
+import { addAdjustments, effectivePlan, planMeta, savePlan, setTodaySession } from './plan';
 import { workoutPlan } from './today';
 
-export interface PlanRow {
-  id: string;
-  effective_from: string;
-  slots: unknown;
-  scenarios?: unknown;
-  source: 'default' | 'ai' | 'user';
-  note: string | null;
-  chat_message_id?: string | null;
-  updated_at?: string;
-  deleted_at?: string | null;
-}
-
-export interface PlanAdjustmentRow {
-  id: string;
-  date: string;
-  slot: Slot | null;
-  change: unknown;
-  reason: string | null;
-  source: 'rebalance' | 'ai' | 'user';
-  chat_message_id?: string | null;
-  updated_at?: string;
-  deleted_at?: string | null;
-}
-
-/** The template override active on `date` (latest `plans` row that has started), or null. */
-export function activePlanOverride(env: Env, date: string): PlanOverride | null {
-  const rows = env.store.where<PlanRow>('plans', (p) => p.effective_from <= date)
-    .sort((a, b) => b.effective_from.localeCompare(a.effective_from) || (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
-  for (const r of rows) {
-    const parsed = PlanOverrideZ.safeParse(r.slots);
-    if (parsed.success) return parsed.data as PlanOverride;
-  }
-  return null;
-}
-
-/** `plan_adjustments` rows for one day, in creation order. Rows with an unknown shape are ignored. */
-export function dayAdjustments(env: Env, date: string): DayAdjustment[] {
-  const rows = env.store.where<PlanAdjustmentRow>('plan_adjustments', (a) => a.date === date)
-    .sort((a, b) => (a.updated_at ?? '').localeCompare(b.updated_at ?? ''));
-  const out: DayAdjustment[] = [];
-  for (const r of rows) {
-    const parsed = DayAdjustmentZ.safeParse({ id: r.id, slot: r.slot, change: r.change, reason: r.reason, source: r.source });
-    if (parsed.success) out.push(parsed.data as DayAdjustment);
-  }
-  return out;
-}
-
-/** Everything the coach needs about right now, computed with the same core functions as the screens. */
+/** Everything the coach needs about right now, from the same view the today screen renders. */
 export function coachSnapshot(env: Env, timeZone?: string): CoachSnapshot {
   const v = todayView(env);
-  const date = v.ctx.key;
-  const day = dayRow(env, date);
   const wp = workoutPlan(env, v);
   return buildSnapshot({
     now: env.now(),
     program: env.program,
-    day,
-    // from the day row, not v.meals: the snapshot applies overrides itself, once
-    baseMeals: plan({ scen: day.scenario ?? 'home', eatout: day.eatout_slot ?? 'lunch', wake: day.wake_min }),
-    override: activePlanOverride(env, date),
-    adjustments: dayAdjustments(env, date),
-    entries: entriesFor(env, date),
+    day: v.day,
+    meals: v.meals,
+    override: v.override,
+    planMeta: planMeta(env, v.ctx.key),
+    adjustments: v.adjustments,
+    target: v.target,
+    week: v.week,
+    routines: v.routines,
+    session: v.session,
+    entries: v.entries,
     weights: env.store.all<WeightRow>('weights'),
     workouts: env.store.all<WorkoutRow>('workouts'),
     workoutPlan: wp ? { routine: wp.routine, at: wp.at, done: wp.done } : null,
@@ -82,8 +36,17 @@ export function coachSnapshot(env: Env, timeZone?: string): CoachSnapshot {
   });
 }
 
+/** Fold a plan patch onto the plan in effect on its date (so a card never carries stale edits from other cards). */
+function patchPlan(env: Env, row: Extract<CardRow, { op: 'plan' }>): PlanOverride {
+  let next: PlanOverride = effectivePlan(env, row.effective_from) ?? {};
+  for (const [k, m] of Object.entries(row.meals ?? {}) as [MealKey, MealOverride | null][]) next = withMeal(next, k, m);
+  for (const [d, t] of Object.entries(row.week ?? {})) if (t) next = withWeekDay(next, Number(d), t);
+  for (const [k, items] of Object.entries(row.routines ?? {}) as [RoutineKey, NonNullable<typeof row.routines>[RoutineKey]][]) if (items) next = withRoutineItems(next, k, items);
+  return next;
+}
+
 /** Write one card row. Returns its undo. */
-function applyRow(env: Env, row: CardRow, reason: string | undefined): Undo {
+function applyRow(env: Env, row: CardRow, card: CoachCard): Undo {
   switch (row.op) {
     case 'meal_entry': {
       const replaced = row.slot === 'extra' ? [] : entriesFor(env, row.date).filter((e) => e.slot === row.slot);
@@ -102,16 +65,13 @@ function applyRow(env: Env, row: CardRow, reason: string | undefined): Undo {
     }
     case 'skip_meal':
       return skipMeal(env, row.date, row.slot);
-    case 'plan': {
-      const r: PlanRow = { id: env.newId(), effective_from: row.effective_from, slots: row.override, scenarios: null, source: 'ai', note: row.note || reason || null, chat_message_id: null, deleted_at: null };
-      env.store.put('plans', r);
-      return () => env.store.remove('plans', r.id);
-    }
-    case 'adjustment': {
-      const r: PlanAdjustmentRow = { id: env.newId(), date: row.date, slot: row.slot, change: row.change, reason: row.reason || reason || null, source: 'ai', chat_message_id: null, deleted_at: null };
-      env.store.put('plan_adjustments', r);
-      return () => env.store.remove('plan_adjustments', r.id);
-    }
+    case 'plan':
+      return savePlan(env, patchPlan(env, row), { source: 'ai', note: row.note, from: row.effective_from, chatMessageId: card.messageId ?? null });
+    case 'adjustment':
+      return addAdjustments(env, [{ offset: 0, adj: { slot: row.slot, change: row.change, reason: row.reason, source: 'ai' } }], row.date, card.messageId ?? null);
+    case 'session':
+      if (row.date !== keyOf(env.now())) throw new Error('날짜가 지난 카드라 적용하지 않았습니다');
+      return setTodaySession(env, row.session, 'ai', row.reason);
   }
 }
 
@@ -123,7 +83,7 @@ export function applyCard(env: Env, card: CoachCard | unknown): ApplyResult {
   if (!parsed.success) return { ok: false, error: '카드 형식이 올바르지 않아 적용하지 않았습니다' };
   const undos: Undo[] = [];
   try {
-    for (const row of parsed.data.rows) undos.push(applyRow(env, row, parsed.data.note));
+    for (const row of parsed.data.rows) undos.push(applyRow(env, row, parsed.data));
   } catch (e) {
     for (const u of undos.reverse()) u();
     return { ok: false, error: e instanceof Error ? e.message : '적용하지 못했습니다' };

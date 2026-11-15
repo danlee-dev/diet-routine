@@ -56,8 +56,9 @@ export interface TurnResult {
   usage: { input: number; output: number; cacheRead: number };
 }
 
-export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal): Promise<TurnResult> {
-  const session = new CoachSession(req.snapshot, crypto.randomUUID().slice(0, 8));
+/** @param messageId id of the assistant chat_messages row this turn will be saved as; cards carry it */
+export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, messageId?: string): Promise<TurnResult> {
+  const session = new CoachSession(req.snapshot, crypto.randomUUID().slice(0, 8), messageId);
   const messages = buildMessages(req);
   const cards: CoachCard[] = [];
   const usage = { input: 0, output: 0, cacheRead: 0 };

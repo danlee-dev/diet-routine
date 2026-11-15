@@ -49,9 +49,9 @@ export default function CoachScreen() {
     setDraft('');
   };
 
-  const view = (focus: CoachCard['focus']) => {
-    emitCoachFocus(focus);
-    router.dismissTo('/');
+  const view = (target: string) => {
+    emitCoachFocus(target);
+    router.dismissTo(target.startsWith('plan:') ? '/plan' : '/');
   };
 
   return (
@@ -137,7 +137,7 @@ export default function CoachScreen() {
 }
 
 function Reply({ t, turn, onApply, onUndo, onView, onRetry }: {
-  t: Theme; turn: AssistantTurn; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (f: CoachCard['focus']) => void; onRetry: () => void;
+  t: Theme; turn: AssistantTurn; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void; onRetry: () => void;
 }) {
   const live = turn.status === 'streaming';
   return (
@@ -149,7 +149,7 @@ function Reply({ t, turn, onApply, onUndo, onView, onRetry }: {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, paddingLeft: 16, borderRadius: R.md, ...squircle, backgroundColor: t.surface }}>
           <Text style={{ flex: 1, color: t.fg2, fontSize: 14, lineHeight: 20 }}>{turn.error.message}</Text>
           {turn.error.code === 'auth'
-            ? <Btn small kind="ghost" label="로그인" onPress={() => router.replace('/sheet/sync')} />
+            ? <Btn small kind="ghost" label="로그인" onPress={() => router.replace('/settings')} />
             : turn.error.code !== 'refusal' && turn.error.code !== 'forbidden' && <Btn small kind="ghost" icon="rotate-ccw" label="다시 시도" onPress={onRetry} />}
         </View>
       )}
@@ -158,7 +158,7 @@ function Reply({ t, turn, onApply, onUndo, onView, onRetry }: {
 }
 
 function Part({ t, part, live, turn, onApply, onUndo, onView }: {
-  t: Theme; part: TurnPart; live: boolean; turn: AssistantTurn; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (f: CoachCard['focus']) => void;
+  t: Theme; part: TurnPart; live: boolean; turn: AssistantTurn; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
 }) {
   switch (part.kind) {
     case 'steps': return <Steps t={t} steps={part.steps} live={live} seconds={live ? undefined : turnSeconds(turn)} />;
@@ -233,7 +233,7 @@ function Prose({ t, text }: { t: Theme; text: string }) {
 }
 
 function Card({ t, card, state, onApply, onUndo, onView }: {
-  t: Theme; card: CoachCard; state: 'idle' | 'applied' | 'undone'; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (f: CoachCard['focus']) => void;
+  t: Theme; card: CoachCard; state: 'idle' | 'applied' | 'undone'; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
 }) {
   const [err, setErr] = useState<string | null>(null);
   const applied = state === 'applied';
@@ -286,7 +286,7 @@ function Card({ t, card, state, onApply, onUndo, onView }: {
             if (!e) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }} />
         )}
-        <Pressable onPress={() => onView(card.focus)} style={({ pressed }) => ({ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 4, height: 36, paddingHorizontal: 6, opacity: pressed ? 0.5 : 1 })}>
+        <Pressable onPress={() => onView(card.target)} style={({ pressed }) => ({ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 4, height: 36, paddingHorizontal: 6, opacity: pressed ? 0.5 : 1 })}>
           <Text style={{ color: t.fg2, fontSize: 14, fontWeight: '600' }}>보기</Text>
           <SymbolView name="arrow.up.right" size={12} tintColor={t.fg2} weight="semibold" />
         </Pressable>

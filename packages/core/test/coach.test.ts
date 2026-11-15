@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PROGRAM, plan, type DayRow, type MealEntryRow } from '../src';
+import {
+  adjustedTarget, applyPlanChanges, DEFAULT_PROGRAM, effectiveRoutines, effectiveWeek, plan, sessionFor,
+  type DayAdjustment, type DayRow, type MealEntryRow, type PlanOverride,
+} from '../src';
 import {
   buildSnapshot, CardZ, ChatRequestZ, COACH_TOOLS, CoachSession, parseToolInput, SnapshotZ, snapshotForModel, type CoachSnapshot,
 } from '../src/coach';
@@ -14,17 +17,24 @@ const entry = (slot: MealEntryRow['slot'], kind: MealEntryRow['kind'], kcal: num
   kcal, protein_g: protein, source: 'plan', photo_path: null, confidence: 1, note: null, updated_at: '2026-11-16T01:00:00Z',
 });
 
+/** Same inputs todayView passes: meals after plan versions and adjustments, week, routines, session. */
+const build = (now: Date, o: { override?: PlanOverride | null; adjustments?: DayAdjustment[]; entries?: MealEntryRow[] } = {}) => {
+  const d = day();
+  const override = o.override ?? null;
+  const adjustments = o.adjustments ?? [];
+  return {
+    now, program: DEFAULT_PROGRAM, day: d,
+    meals: applyPlanChanges(plan({ scen: 'home', eatout: 'lunch', wake: d.wake_min }), override, adjustments),
+    override, planMeta: null, adjustments, target: adjustedTarget(1390, adjustments),
+    week: effectiveWeek(override), routines: effectiveRoutines(override), session: sessionFor(now.getDay(), override, adjustments),
+    entries: o.entries ?? [],
+  };
+};
+
 /** Monday 2026-11-16 12:30, home day, woke at 08:00, breakfast eaten as planned. */
 const snap = (entries: MealEntryRow[] = [entry('breakfast', 'plan', 295, 21)]): CoachSnapshot => {
-  const d = day();
   return buildSnapshot({
-    now: new Date(2026, 10, 16, 12, 30),
-    program: DEFAULT_PROGRAM,
-    day: d,
-    baseMeals: plan({ scen: 'home', eatout: 'lunch', wake: d.wake_min }),
-    override: null,
-    adjustments: [],
-    entries,
+    ...build(new Date(2026, 10, 16, 12, 30), { entries }),
     weights: [{ date: '2026-11-15', kg: 76, source: 'manual', updated_at: '' }, { date: '2026-11-16', kg: 75.6, source: 'manual', updated_at: '' }],
     workouts: [],
     workoutPlan: { routine: 'A', at: 17 * 60 + 50, done: false },
@@ -41,17 +51,19 @@ describe('coach snapshot', () => {
     expect(s.totals).toEqual({ eatenKcal: 295, eatenProtein: 21, projectedKcal: 1390, projectedProtein: 129 });
     expect(s.target.kcal).toBe(1390);
     expect(s.weight.today).toBe(75.6);
+    expect(s.session).toBe('A'); // Monday in the built-in week
+    expect(s.week.map((d) => d.t)).toEqual(['rest', 'A', 'B', 'walk', 'A', 'B', 'light']);
+    expect(s.routines.B.items[0]).toEqual({ name: '스쿼트', n: 20, unit: '회' });
     expect(snapshotForModel(s)).toMatch(/^<context>\n\{.*\}\n<\/context>$/s);
   });
 
   it('applies template overrides and day adjustments before reporting meals', () => {
-    const d = day();
     const s = buildSnapshot({
-      now: new Date(2026, 10, 16, 9, 0), program: DEFAULT_PROGRAM, day: d,
-      baseMeals: plan({ scen: 'home', eatout: 'lunch', wake: d.wake_min }),
-      override: { meals: { snack: { removed: true } } },
-      adjustments: [{ slot: 'lunch', source: 'rebalance', change: { kind: 'cut', kcal_delta: -100, protein_delta: -2, label: '햇반 반 공기만', cut_id: 'lunch-rice-half' } }],
-      entries: [], weights: [], workouts: [], workoutPlan: null, stepsGoal: 4000,
+      ...build(new Date(2026, 10, 16, 9, 0), {
+        override: { meals: { snack: { removed: true } } },
+        adjustments: [{ slot: 'lunch', source: 'rebalance', change: { kind: 'cut', kcal_delta: -100, protein_delta: -2, label: '햇반 반 공기만', cut_id: 'lunch-rice-half' } }],
+      }),
+      weights: [], workouts: [], workoutPlan: null, stepsGoal: 4000,
     });
     expect(s.meals.map((m) => m.key)).toEqual(['breakfast', 'lunch', 'post', 'dinner']);
     expect(s.meals.find((m) => m.key === 'lunch')).toMatchObject({ kcal: 350, changes: ['햇반 반 공기만'] });
@@ -85,6 +97,8 @@ describe('tool input validation', () => {
     expect(t.input_schema).not.toHaveProperty('$schema');
     expect(t.input_schema.required).toEqual(expect.arrayContaining(['slot', 'name', 'nutrition']));
     expect(COACH_TOOLS.map((x) => x.name).sort()).toEqual(['adjust_workout', 'log_food', 'propose_day_adjustment', 'propose_plan_change', 'rebalance_today', 'skip_meal']);
+    // the API rejects oneOf / anyOf / allOf at the top level of input_schema
+    for (const tool of COACH_TOOLS) for (const k of ['oneOf', 'anyOf', 'allOf']) expect(tool.input_schema, `${tool.name}.${k}`).not.toHaveProperty(k);
   });
 
   it('validates the chat request body', () => {
@@ -110,7 +124,7 @@ describe('cards to rows', () => {
     const out = run(s, 'log_food', { slot: 'lunch', name: '순대국', amount: '1그릇', nutrition: { basis: 'estimate', kcal: 750, protein: 32 }, confidence: 0.6, source: 'text' });
     expect(out.card!.rows).toEqual([{ op: 'meal_entry', date: '2026-11-16', slot: 'lunch', name: '순대국', amount: '1그릇', kcal: 750, protein: 32, source: 'ai_text', confidence: 0.6, note: null }]);
     expect(out.card!.delta).toEqual({ kcal: 300, protein: 10 }); // planned lunch was 450 kcal / 22 g
-    expect(out.card!.focus).toEqual({ slot: 'lunch' });
+    expect(out.card!.target).toBe('today:meal:lunch');
     expect(out.result).toMatchObject({ day: { projected_kcal_after: 1690, over_target_after: 300 } });
   });
 
@@ -145,7 +159,8 @@ describe('cards to rows', () => {
     const out = run(new CoachSession(snap(), 't'), 'propose_plan_change', {
       changes: [{ slot: 'snack', remove: true }], effective: 'tomorrow', title: '간식 빼기', reason: '배가 안 고픔',
     });
-    expect(out.card!.rows).toEqual([{ op: 'plan', effective_from: '2026-11-17', override: { meals: { snack: { removed: true } } }, note: '배가 안 고픔' }]);
+    expect(out.card!.rows).toEqual([{ op: 'plan', effective_from: '2026-11-17', meals: { snack: { removed: true } }, note: '간식 빼기' }]);
+    expect(out.card!.target).toBe('plan:meal:snack');
     expect(out.result).toMatchObject({ protein_below_floor: true, plan_day_protein_after: 100 });
   });
 
@@ -153,18 +168,33 @@ describe('cards to rows', () => {
     const items = [{ name: '프로틴 (더블리치초콜릿)', amount: '1스쿱', note: '저지방 우유 200ml 에 타서 흔들기 · 물이면 300ml' }, { name: '저지방 우유', amount: '200ml' }];
     const out = run(new CoachSession(snap(), 't'), 'propose_plan_change', { changes: [{ slot: 'post', items }], effective: 'today', title: '프로틴 먹는 법', reason: '질문' });
     const row = out.card!.rows[0]!;
-    expect(row.op === 'plan' && row.override.meals?.post).toMatchObject({ items, note: '프로틴 먹는 법' });
+    expect(row.op === 'plan' && row.meals?.post).toMatchObject({ items, note: '프로틴 먹는 법' });
     expect(out.card!.delta.kcal).toBe(0);
   });
 
-  it('day adjustment and workout change write plan_adjustments rows for today', () => {
-    const s = new CoachSession(snap(), 't');
-    const a = run(s, 'propose_day_adjustment', { slot: 'dinner', kind: 'add', label: '닭가슴살 +1', kcal_delta: 120, protein_delta: 24, reason: '간식 건너뜀' });
+  it('day adjustment writes a plan_adjustments row for today', () => {
+    const a = run(new CoachSession(snap(), 't', '0b8f8c52-6c55-4a3f-9f43-1c1f1d1a2b3c'), 'propose_day_adjustment', { slot: 'dinner', kind: 'add', label: '닭가슴살 +1', kcal_delta: 120, protein_delta: 24, reason: '간식 건너뜀' });
     expect(a.card!.rows[0]).toMatchObject({ op: 'adjustment', date: '2026-11-16', slot: 'dinner', change: { kind: 'add', kcal_delta: 120, protein_delta: 24 } });
-    const w = run(s, 'adjust_workout', { action: 'walk_instead', minutes: 30, steps_delta: 3000, label: '홈트 대신 30분 걷기', reason: '무릎' });
-    expect(w.card!.rows[0]).toMatchObject({ op: 'adjustment', slot: null, change: { target: 'workout', kcal_delta: 0, workout: { action: 'walk_instead', minutes: 30 }, steps_delta: 3000 } });
-    expect(w.card!.focus).toEqual({ slot: null, workout: true });
-    expect(a.card!.id).not.toBe(w.card!.id);
+    expect(a.card!.messageId).toBe('0b8f8c52-6c55-4a3f-9f43-1c1f1d1a2b3c');
+  });
+
+  it('workout: today-only session, weekly schedule and routine items', () => {
+    const s = new CoachSession(snap(), 't');
+    const today = run(s, 'adjust_workout', { scope: 'today', session: 'walk', title: '오늘은 홈트 대신 걷기', reason: '무릎' });
+    expect(today.card!.rows).toEqual([{ op: 'session', date: '2026-11-16', session: 'walk', reason: '무릎' }]);
+    expect(today.card!.target).toBe('today:workout');
+    const week = run(s, 'adjust_workout', { scope: 'week', days: [{ dow: 3, session: 'A' }, { dow: 1, session: 'A' }], title: '수요일에도 홈트 A', reason: '걷기만 하면 심심함' });
+    // Monday is already A, so only Wednesday changes
+    expect(week.card!.rows).toEqual([{ op: 'plan', effective_from: '2026-11-16', week: { 3: 'A' }, note: '수요일에도 홈트 A' }]);
+    expect(week.card!.target).toBe('plan:workout:week:3');
+    const items = [{ name: '스쿼트', n: 15, unit: '회' }, { name: '글루트 브릿지', n: 20, unit: '회' }];
+    const routine = run(s, 'adjust_workout', { scope: 'routine', routine: 'B', items, title: '무릎 편한 하체 루틴', reason: '런지 빼기' });
+    expect(routine.card!.rows).toEqual([{ op: 'plan', effective_from: '2026-11-16', routines: { B: items }, note: '무릎 편한 하체 루틴' }]);
+    expect(routine.card!.target).toBe('plan:workout:routine:B');
+    expect(parseToolInput('adjust_workout', { scope: 'week', days: [{ dow: 9, session: 'A' }], title: 'x', reason: 'x' }).ok).toBe(false);
+    expect(parseToolInput('adjust_workout', { scope: 'routine', routine: 'A', title: 'x', reason: 'x' }).ok).toBe(false); // items missing
+    expect(parseToolInput('adjust_workout', { scope: 'today', title: 'x', reason: 'x' }).ok).toBe(false); // session missing
+    expect(new CoachSession(snap(), 't').run('adjust_workout', { scope: 'today', session: 'A', title: 'x', reason: 'x' }).isError).toBe(true);
   });
 
   it('refuses to adjust a meal that is already logged', () => {

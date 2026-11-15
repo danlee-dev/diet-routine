@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PROGRAM } from '@diet/core';
 import { CoachSession, parseToolInput, type CoachCard } from '@diet/core/coach';
-import { activePlanOverride, applyCard, coachSnapshot, dayAdjustments, DataStore, setDay, todayView, toggleMeal, type Env } from '../src';
+import { adjustmentsFor as dayAdjustments, applyCard, coachSnapshot, DataStore, effectivePlan, planMeta, setDay, todayView, toggleMeal, type Env } from '../src';
 
 const makeEnv = async () => {
   const store = new DataStore({ load: async () => null, save: async () => {} });
@@ -43,21 +43,47 @@ describe('coach cards on the device', () => {
     expect(v.entries.find((e) => e.slot === 'lunch')).toBeUndefined();
   });
 
-  it('applies a plan change as a new plans row that the snapshot then reads', async () => {
+  it('applies plan changes through savePlan, folding each patch onto the plan in effect', async () => {
     const env = await makeEnv();
     const card = cardFor(env, 'propose_plan_change', { changes: [{ slot: 'snack', remove: true }], effective: 'today', title: '간식 빼기', reason: '배가 안 고픔' });
-    const r = applyCard(env, card);
-    expect(r.ok).toBe(true);
-    expect(activePlanOverride(env, '2026-11-16')).toEqual({ meals: { snack: { removed: true } } });
-    expect(activePlanOverride(env, '2026-11-15')).toBeNull();
+    const r1 = applyCard(env, card);
+    expect(r1.ok).toBe(true);
+    expect(effectivePlan(env, '2026-11-16')?.meals).toEqual({ snack: { removed: true } });
+    expect(planMeta(env, '2026-11-16')).toMatchObject({ source: 'ai', note: '간식 빼기' });
     expect(coachSnapshot(env).meals.map((m) => m.key)).not.toContain('snack');
-    // a second change merges on top of the first instead of replacing it
-    const card2 = cardFor(env, 'propose_plan_change', { changes: [{ slot: 'dinner', kcal: 305, protein: 51, items: [{ name: '헬로틴 저염 닭가슴살', amount: '2팩' }, { name: '샐러드 믹스', amount: '1봉' }] }], effective: 'today', title: '저녁 닭가슴살 +1', reason: '단백질' });
-    applyCard(env, card2);
-    expect(Object.keys(activePlanOverride(env, '2026-11-16')!.meals!).sort()).toEqual(['dinner', 'snack']);
-    if (r.ok) r.undo();
-    // undoing the first card leaves the second (newest) row active
-    expect(Object.keys(activePlanOverride(env, '2026-11-16')!.meals!).sort()).toEqual(['dinner', 'snack']);
+    // the second card was proposed from the original snapshot; applying it keeps the first change
+    const card2 = new CoachSession(coachSnapshot(env), 'd').run('propose_plan_change', { changes: [{ slot: 'dinner', kcal: 305, protein: 51, items: [{ name: '헬로틴 저염 닭가슴살', amount: '2팩' }, { name: '샐러드 믹스', amount: '1봉' }] }], effective: 'today', title: '저녁 닭가슴살 +1', reason: '단백질' }).card!;
+    const r2 = applyCard(env, card2);
+    expect(Object.keys(effectivePlan(env, '2026-11-16')!.meals!).sort()).toEqual(['dinner', 'snack']);
+    expect(env.store.all('plans')).toHaveLength(1); // one version per day
+    if (r2.ok) r2.undo();
+    expect(effectivePlan(env, '2026-11-16')?.meals).toEqual({ snack: { removed: true } });
+    if (r1.ok) r1.undo();
+    expect(effectivePlan(env, '2026-11-16')).toBeNull();
+  });
+
+  it('applies workout cards: weekday, routine and today-only session', async () => {
+    const env = await makeEnv();
+    const week = applyCard(env, cardFor(env, 'adjust_workout', { scope: 'week', days: [{ dow: 3, session: 'A' }], title: '수요일에도 홈트 A', reason: '심심함' }));
+    expect(week.ok).toBe(true);
+    expect(todayView(env).week[3]!.t).toBe('A');
+    const items = [{ name: '스쿼트', n: 15, unit: '회' }];
+    applyCard(env, cardFor(env, 'adjust_workout', { scope: 'routine', routine: 'B', items, title: '하체 줄이기', reason: '무릎' }));
+    expect(todayView(env).routines.B.items).toEqual(items);
+    expect(todayView(env).week[3]!.t).toBe('A'); // still there
+    const today = applyCard(env, cardFor(env, 'adjust_workout', { scope: 'today', session: 'walk', title: '오늘은 걷기', reason: '무릎' }));
+    expect(todayView(env).session).toBe('walk');
+    if (today.ok) today.undo();
+    expect(todayView(env).session).toBe('A');
+  });
+
+  it('refuses a today-only session card after the date has passed', async () => {
+    const env = await makeEnv();
+    const card = cardFor(env, 'adjust_workout', { scope: 'today', session: 'rest', title: '쉬기', reason: '피곤' });
+    const later: Env = { ...env, now: () => new Date(2026, 10, 17, 9, 0) };
+    const r = applyCard(later, card);
+    expect(r.ok).toBe(false);
+    expect(env.store.where('plan_adjustments', () => true)).toHaveLength(0);
   });
 
   it('applies rebalance rows for today and the following days', async () => {
