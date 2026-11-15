@@ -2,13 +2,14 @@
 // @diet/core/coach and @diet/data), streamed with expo/fetch.
 import type { CoachPhoto } from './photo';
 import { useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 import { fetch } from 'expo/fetch';
 import * as Crypto from 'expo-crypto';
 import {
   createSSEParser, endTurn, historyFor, newAssistantTurn, reduceTurn, setCardState,
   type AssistantTurn, type ChatThreadRow, type CoachCard, type Turn, type UserTurn,
 } from '@diet/core/coach';
-import { applyCard, cardApplied, coachSnapshot, loadConversation, undoableByRows, undoByRows, type Env, type Undo } from '@diet/data';
+import { applyCard, cardApplied, coachSnapshot, loadConversation, loadSavedReply, undoableByRows, undoByRows, type Env, type Undo } from '@diet/data';
 import { getSupabase } from './env';
 
 /** Coach endpoint. EXPO_PUBLIC_API_URL points a dev build at a local web server (the simulator reaches the Mac at localhost). */
@@ -52,6 +53,8 @@ const subscribe = (l: () => void) => { listeners.add(l); return () => { listener
 const getState = () => state;
 let thread = Crypto.randomUUID();
 let abort: AbortController | null = null;
+/** the answer being written: 멈추기 names it to the server */
+let current: { replyId: string; threadId: string } | null = null;
 const undos = new Map<string, Undo>();
 let loadSeq = 0;
 
@@ -98,16 +101,71 @@ export function takePendingCoach(): boolean {
 const patch = (id: string, fn: (t: AssistantTurn) => AssistantTurn) =>
   setState((s) => ({ ...s, turns: s.turns.map((t) => (t.role === 'assistant' && t.id === id ? fn(t) : t)) }));
 
+/** 멈추기: the server keeps a turn going when the connection drops, so it has to be told to stop. */
+async function sendStop(c: { replyId: string; threadId: string }) {
+  try {
+    const token = await accessToken();
+    if (!token) return;
+    await fetch(`${COACH_URL}/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(c) });
+  } catch { /* best effort: the turn ends on its own */ }
+}
+
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
+  const t = setTimeout(resolve, ms);
+  signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+});
+
+/** Resolves once the app is in the foreground (requests from the background just fail). */
+const foreground = (signal: AbortSignal) => new Promise<void>((resolve) => {
+  if (AppState.currentState === 'active' || signal.aborted) { resolve(); return; }
+  const sub = AppState.addEventListener('change', (st) => { if (st === 'active') { sub.remove(); resolve(); } });
+  signal.addEventListener('abort', () => { sub.remove(); resolve(); }, { once: true });
+});
+
+/**
+ * The stream was lost mid-answer (usually the app went to the background and iOS dropped the socket). The
+ * server still finishes the turn and saves it under the reply id, so read it from there.
+ */
+async function resume(replyId: string, signal: AbortSignal) {
+  const supa = getSupabase();
+  patch(replyId, (t) => reduceTurn(t, { type: 'status', id: 'resume', label: '답을 이어서 받는 중', state: 'running', kind: 'context' }));
+  const until = Date.now() + 4 * 60_000;
+  while (supa && !signal.aborted && Date.now() < until) {
+    await foreground(signal);
+    if (signal.aborted) break;
+    try {
+      const r = await loadSavedReply(supa, replyId);
+      if (r?.kind === 'turn') { patch(replyId, () => ({ ...r.turn, id: replyId })); return; }
+      if (r?.kind === 'stopped') { patch(replyId, (t) => endTurn(t, 'stopped')); return; }
+      if (r?.kind === 'error') { patch(replyId, (t) => endTurn(t, 'error', { code: 'upstream', message: r.message })); return; }
+    } catch { /* offline for a moment: try again */ }
+    await sleep(2000, signal);
+  }
+  patch(replyId, (t) => (signal.aborted ? endTurn(t, 'stopped') : endTurn(t, 'error', { code: 'network', message: '답을 받지 못했습니다. 다시 물어봐 주세요' })));
+}
+
 async function send(env: Env, text: string, photos: CoachPhoto[] = []) {
   const message = text.trim();
   if (abort || (!message && !photos.length)) return;
+  // ac is 멈추기; conn is this request, also dropped on purpose when the app returns from the background
   const ac = new AbortController();
   abort = ac;
+  const conn = new AbortController();
+  ac.signal.addEventListener('abort', () => conn.abort(), { once: true });
   const history = historyFor(state.turns);
   const user: UserTurn = { role: 'user', id: Crypto.randomUUID(), text: message, images: photos.map((p) => p.uri) };
   const reply = newAssistantTurn(Crypto.randomUUID());
   loadSeq++; // a load still in flight must not replace the turn being sent
   setState((s) => ({ ...s, turns: [...s.turns, user, reply], busy: true, threadId: thread, load: s.load === 'loading' ? 'ready' : s.load }));
+  current = { replyId: reply.id, threadId: thread };
+  let streaming = false;
+  let finished = false;
+  let away = false;
+  const appSub = AppState.addEventListener('change', (st) => {
+    if (st === 'background') away = true;
+    // back mid-answer: the socket may be dead without saying so; read the saved answer instead
+    else if (st === 'active' && away && streaming) conn.abort();
+  });
   try {
     const token = await accessToken();
     if (ac.signal.aborted) { patch(reply.id, (t) => endTurn(t, 'stopped')); return; }
@@ -120,9 +178,9 @@ async function send(env: Env, text: string, photos: CoachPhoto[] = []) {
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         threadId: thread, message, images: photos.map((p) => ({ media_type: p.media_type, data: p.data })), history,
-        snapshot: coachSnapshot(env, timeZone(), { extras: true }), features: FEATURES,
+        snapshot: coachSnapshot(env, timeZone(), { extras: true }), features: FEATURES, replyId: reply.id,
       }),
-      signal: ac.signal,
+      signal: conn.signal,
     });
     if (!res.ok || !res.body) {
       const j = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
@@ -130,18 +188,25 @@ async function send(env: Env, text: string, photos: CoachPhoto[] = []) {
       patch(reply.id, (t) => endTurn(t, 'error', { code, message: j?.error?.message ?? '코치에 연결하지 못했습니다' }));
       return;
     }
+    streaming = true;
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
     const feed = createSSEParser();
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       const events = feed(value);
+      if (events.some((e) => e.type === 'done' || e.type === 'error')) finished = true;
       if (events.length) patch(reply.id, (t) => events.reduce((acc, e) => reduceTurn(acc, e), t));
     }
-    patch(reply.id, (t) => (t.status === 'streaming' ? endTurn(t, 'error', { code: 'network', message: '연결이 끊겼습니다. 다시 시도해 주세요' }) : t));
+    // the stream ended without "done": the server is still writing the answer
+    if (!finished) await resume(reply.id, ac.signal);
   } catch {
-    patch(reply.id, (t) => (ac.signal.aborted ? endTurn(t, 'stopped') : endTurn(t, 'error', { code: 'network', message: '인터넷 연결을 확인해 주세요' })));
+    if (ac.signal.aborted) patch(reply.id, (t) => endTurn(t, 'stopped'));
+    else if (streaming) await resume(reply.id, ac.signal);
+    else patch(reply.id, (t) => endTurn(t, 'error', { code: 'network', message: '인터넷 연결을 확인해 주세요' }));
   } finally {
+    appSub.remove();
+    current = null;
     abort = null;
     setState((s) => ({ ...s, busy: false }));
   }
@@ -156,9 +221,11 @@ export function useCoachChat(env: Env) {
     threadId,
     load,
     send: (text: string, photos: CoachPhoto[] = []) => send(env, text, photos),
-    stop: () => abort?.abort(),
+    stop: () => { const c = current; abort?.abort(); if (c) void sendStop(c); },
     reset: () => {
+      const c = current;
       abort?.abort();
+      if (c) void sendStop(c);
       loadSeq++;
       thread = Crypto.randomUUID();
       setState((s) => ({ ...s, turns: [], busy: false, threadId: null }));

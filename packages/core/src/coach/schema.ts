@@ -224,6 +224,11 @@ export const ChatRequestZ = z.object({
   snapshot: SnapshotZ,
   /** what this client can render beyond text and cards ('blocks' = trend blocks); older clients send nothing */
   features: z.array(z.string().max(20)).max(10).default([]),
+  /**
+   * id the client gave the answer (uuid). The server saves the answer under it, so a client that lost the
+   * stream (the app went to the background) can pick the saved answer up, and 멈추기 can name it.
+   */
+  replyId: z.uuid().optional(),
 }).refine((b) => b.message.length > 0 || b.images.length > 0, { message: 'message or image required' });
 
 // ---------------------------------------------------------------- tool inputs (model -> server)

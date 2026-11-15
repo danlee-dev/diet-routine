@@ -7,7 +7,7 @@ import {
   createSSEParser, endTurn, historyFor, newAssistantTurn, reduceTurn, setCardState,
   type AssistantTurn, type ChatThreadRow, type CoachCard, type Turn, type UserTurn,
 } from '@diet/core/coach';
-import { applyCard, cardApplied, coachSnapshot, loadConversation, undoableByRows, undoByRows, type Env, type Undo } from '@diet/data';
+import { applyCard, cardApplied, coachSnapshot, loadConversation, loadSavedReply, undoableByRows, undoByRows, type Env, type Undo } from '@diet/data';
 import { getSupabase } from '@/lib/client';
 import type { PreparedImage } from './image';
 
@@ -24,6 +24,20 @@ async function accessToken(): Promise<string | null> {
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
+/** 멈추기: the server keeps a turn going when the connection drops, so it has to be told to stop. */
+async function sendStop(c: { replyId: string; threadId: string }) {
+  try {
+    const token = await accessToken();
+    if (!token) return;
+    await fetch('/api/ai/chat/stop', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(c) });
+  } catch { /* best effort: the turn ends on its own */ }
+}
+
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
+  const t = setTimeout(resolve, ms);
+  signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+});
+
 export function useCoachChat(env: Env) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
@@ -33,6 +47,8 @@ export function useCoachChat(env: Env) {
   const turnsRef = useRef<Turn[]>([]);
   const thread = useRef(uid());
   const abort = useRef<AbortController | null>(null);
+  /** the answer being written: 멈추기 names it to the server */
+  const current = useRef<{ replyId: string; threadId: string } | null>(null);
   const undos = useRef(new Map<string, Undo>());
   /** photos per user turn, so 다시 시도 sends them again */
   const photos = useRef(new Map<string, PreparedImage[]>());
@@ -82,6 +98,28 @@ export function useCoachChat(env: Env) {
   const openThread = useCallback((id: string) => { void fetchConversation({ threadId: id }); }, [fetchConversation]);
   const openByMessage = useCallback((messageId: string | null) => { void fetchConversation(messageId ? { messageId } : {}); }, [fetchConversation]);
 
+  /**
+   * The stream was lost mid-answer (a phone browser put the tab to sleep, or the network blinked). The server
+   * still finishes the turn and saves it under the reply id, so read it from there.
+   */
+  const resume = useCallback(async (replyId: string, signal: AbortSignal) => {
+    const supa = getSupabase();
+    patch(replyId, (t) => reduceTurn(t, { type: 'status', id: 'resume', label: '답을 이어서 받는 중', state: 'running', kind: 'context' }));
+    const until = Date.now() + 4 * 60_000;
+    while (supa && !signal.aborted && Date.now() < until) {
+      if (document.visibilityState === 'visible') {
+        try {
+          const r = await loadSavedReply(supa, replyId);
+          if (r?.kind === 'turn') { patch(replyId, () => ({ ...r.turn, id: replyId })); return; }
+          if (r?.kind === 'stopped') { patch(replyId, (t) => endTurn(t, 'stopped')); return; }
+          if (r?.kind === 'error') { patch(replyId, (t) => endTurn(t, 'error', { code: 'upstream', message: r.message })); return; }
+        } catch { /* offline for a moment: try again */ }
+      }
+      await sleep(2000, signal);
+    }
+    patch(replyId, (t) => (signal.aborted ? endTurn(t, 'stopped') : endTurn(t, 'error', { code: 'network', message: '답을 받지 못했습니다. 다시 물어봐 주세요' })));
+  }, [patch]);
+
   const send = useCallback(async (text: string, images: PreparedImage[]) => {
     if (abort.current) return;
     const message = text.trim();
@@ -89,6 +127,9 @@ export function useCoachChat(env: Env) {
     // claim the turn before any await, so a second tap or 멈추기 in between is handled
     const ac = new AbortController();
     abort.current = ac;
+    // conn is this request; it is also dropped on purpose when a tab comes back to a silent stream
+    const conn = new AbortController();
+    ac.signal.addEventListener('abort', () => conn.abort(), { once: true });
     loadSeq.current++; // a load still in flight must not replace the turn being sent
     setBusy(true);
     const history = historyFor(turnsRef.current);
@@ -97,6 +138,17 @@ export function useCoachChat(env: Env) {
     const reply = newAssistantTurn(uid());
     setTurns((ts) => [...ts, user, reply]);
     setThreadId(thread.current);
+    current.current = { replyId: reply.id, threadId: thread.current };
+    let streaming = false;
+    let finished = false;
+    let away = false;
+    let lastChunk = Date.now();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') away = true;
+      // the server pings every 15 s, so a longer silence after coming back means the socket is gone
+      else if (away && streaming && Date.now() - lastChunk > 20_000) conn.abort();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     try {
       const token = await accessToken();
@@ -115,8 +167,9 @@ export function useCoachChat(env: Env) {
           history,
           snapshot: coachSnapshot(env, Intl.DateTimeFormat().resolvedOptions().timeZone, { extras: true }),
           features: FEATURES,
+          replyId: reply.id,
         }),
-        signal: ac.signal,
+        signal: conn.signal,
       });
       if (!res.ok || !res.body) {
         const j = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
@@ -124,28 +177,42 @@ export function useCoachChat(env: Env) {
         patch(reply.id, (t) => endTurn(t, 'error', { code, message: j?.error?.message ?? '코치에 연결하지 못했습니다' }));
         return;
       }
+      streaming = true;
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       const feed = createSSEParser();
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        lastChunk = Date.now();
         const events = feed(dec.decode(value, { stream: true }));
+        if (events.some((e) => e.type === 'done' || e.type === 'error')) finished = true;
         if (events.length) patch(reply.id, (t) => events.reduce((acc, e) => reduceTurn(acc, e), t));
       }
-      patch(reply.id, (t) => (t.status === 'streaming' ? endTurn(t, 'error', { code: 'network', message: '연결이 끊겼습니다. 다시 시도해 주세요' }) : t));
+      // the stream ended without "done": the server is still writing the answer
+      if (!finished) await resume(reply.id, ac.signal);
     } catch {
-      patch(reply.id, (t) => (ac.signal.aborted ? endTurn(t, 'stopped') : endTurn(t, 'error', { code: 'network', message: '인터넷 연결을 확인해 주세요' })));
+      if (ac.signal.aborted) patch(reply.id, (t) => endTurn(t, 'stopped'));
+      else if (streaming) await resume(reply.id, ac.signal);
+      else patch(reply.id, (t) => endTurn(t, 'error', { code: 'network', message: '인터넷 연결을 확인해 주세요' }));
     } finally {
+      document.removeEventListener('visibilitychange', onVisibility);
+      current.current = null;
       abort.current = null;
       setBusy(false);
     }
-  }, [env, patch]);
+  }, [env, patch, resume]);
 
-  const stop = useCallback(() => abort.current?.abort(), []);
+  const stop = useCallback(() => {
+    const c = current.current;
+    abort.current?.abort();
+    if (c) void sendStop(c);
+  }, []);
 
   const reset = useCallback(() => {
+    const c = current.current;
     abort.current?.abort();
+    if (c) void sendStop(c);
     loadSeq.current++;
     photos.current.clear();
     thread.current = uid();

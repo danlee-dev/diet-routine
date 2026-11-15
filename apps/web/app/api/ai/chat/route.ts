@@ -1,6 +1,7 @@
 // POST /api/ai/chat - one coach turn, streamed as server-sent events (see CoachEvent in @diet/core/coach).
 // Auth: Supabase access token in `Authorization: Bearer`. Body: ChatRequest (validated).
 import Anthropic from '@anthropic-ai/sdk';
+import { after } from 'next/server';
 import { ChatRequestZ, type CoachErrorCode, type CoachEvent } from '@diet/core/coach';
 import { runCoachTurn } from '@/lib/ai/agent';
 import { authenticate } from '@/lib/ai/auth';
@@ -49,50 +50,82 @@ export async function POST(req: Request): Promise<Response> {
     if (!quota.ok) return json(429, 'rate_limit', quota.message, { 'Retry-After': '600' });
   }
 
-  // record the user turn (thread + message, through RLS); this is also what the hourly/daily quota counts
+  // record the user turn (thread + message, through RLS) while the answer starts: the first status line should
+  // not wait for these writes. The assistant row is saved after them (it needs the thread row).
   const db = auth.db;
-  await db.from('chat_threads').upsert({ id: input.threadId, title: input.message.slice(0, 40) || '사진' }, { onConflict: 'id', ignoreDuplicates: true });
-  // the thread list on every device is ordered by the last turn
-  await db.from('chat_threads').update({ updated_at: new Date().toISOString() }).eq('id', input.threadId);
-  await db.from('chat_messages').insert({ thread_id: input.threadId, role: 'user', content: { text: input.message, images: input.images.length } });
+  const savedUserTurn = (async () => {
+    await db.from('chat_threads').upsert({ id: input.threadId, title: input.message.slice(0, 40) || '사진' }, { onConflict: 'id', ignoreDuplicates: true });
+    // the thread list on every device is ordered by the last turn
+    await Promise.all([
+      db.from('chat_threads').update({ updated_at: new Date().toISOString() }).eq('id', input.threadId),
+      db.from('chat_messages').insert({ thread_id: input.threadId, role: 'user', content: { text: input.message, images: input.images.length } }),
+    ]);
+  })().catch((e) => console.error('[coach] user turn not saved', e instanceof Error ? e.message : e));
 
-  const assistantId = crypto.randomUUID();
-  // stops the model call when the client disconnects or cancels the stream (멈추기), so nothing keeps billing
+  const assistantId = input.replyId ?? crypto.randomUUID();
+  const saveReply = async (content: Record<string, unknown>) => {
+    await savedUserTurn;
+    const { error } = await db.from('chat_messages').insert({ id: assistantId, thread_id: input.threadId, role: 'assistant', content });
+    // 23505: a stop note already holds this id (멈추기), so the answer is not saved
+    if (error && error.code !== '23505') console.error('[coach] reply not saved', error.message);
+  };
+
+  // Leaving the app drops the connection, but the turn keeps going and is saved under assistantId; the app picks
+  // it up when it comes back. Only 멈추기 stops the model: it saves a stop note under the same id (stop/route.ts),
+  // which this loop notices within a few seconds.
   const upstream = new AbortController();
-  req.signal.addEventListener('abort', () => upstream.abort(), { once: true });
+  const stopCheck = setInterval(() => {
+    void db.from('chat_messages').select('id').eq('id', assistantId).maybeSingle().then(({ data }) => { if (data) upstream.abort(); });
+  }, 3000);
+
   let seq = 0;
-  let open = true;
+  let ctl: ReadableStreamDefaultController<Uint8Array> | null = null;
   const stream = new ReadableStream<Uint8Array>({
-    cancel() { open = false; upstream.abort(); },
-    async start(controller) {
-      const send = (e: CoachEvent) => { if (open) controller.enqueue(sseFrame(e, ++seq)); };
-      const ping = setInterval(() => { if (open) controller.enqueue(ssePing()); }, 15_000);
-      try {
-        const result = await runCoachTurn(input, send, upstream.signal, assistantId);
-        send({ type: 'done', stopReason: result.stopReason });
-        if (usage?.ok) await recordTokens(usage.id, result.usage.input + result.usage.cacheRead + result.usage.cacheWrite, result.usage.output);
-        if (result.text || result.cards.length || result.blocks.length) {
-          await db.from('chat_messages').insert({ id: assistantId, thread_id: input.threadId, role: 'assistant', content: { text: result.text, cards: result.cards, blocks: result.blocks, parts: result.parts, usage: result.usage } });
-        }
-      } catch (err) {
-        if (upstream.signal.aborted) { /* client went away: stop quietly */ }
-        else if (err instanceof Anthropic.RateLimitError) send({ type: 'error', code: 'rate_limit', message: 'AI 서버가 바쁩니다. 잠시 뒤에 다시 시도해 주세요' });
-        else if (err instanceof Anthropic.BadRequestError) {
-          console.error('[coach] bad request', err.message);
-          send({ type: 'error', code: 'upstream', message: '요청을 처리하지 못했습니다' });
-        } else if (err instanceof Anthropic.APIError) {
-          console.error('[coach] api error', err.status, err.message);
-          send({ type: 'error', code: 'upstream', message: 'AI 서버에 연결하지 못했습니다. 잠시 뒤에 다시 시도해 주세요' });
-        } else {
-          console.error('[coach] failed', err);
-          send({ type: 'error', code: 'upstream', message: '답을 만들지 못했습니다' });
-        }
-      } finally {
-        clearInterval(ping);
-        open = false;
-        try { controller.close(); } catch { /* already closed */ }
-      }
-    },
+    start(c) { ctl = c; },
+    cancel() { ctl = null; },
   });
+  const write = (chunk: Uint8Array) => { if (!ctl) return; try { ctl.enqueue(chunk); } catch { ctl = null; } };
+  const send = (e: CoachEvent) => write(sseFrame(e, ++seq));
+  const fail = async (code: CoachErrorCode, message: string) => {
+    send({ type: 'error', code, message });
+    await saveReply({ error: { code, message } });
+  };
+
+  const job = (async () => {
+    const ping = setInterval(() => write(ssePing()), 15_000);
+    try {
+      const result = await runCoachTurn(input, send, upstream.signal, assistantId);
+      send({ type: 'done', stopReason: result.stopReason });
+      clearInterval(stopCheck);
+      if (usage?.ok) await recordTokens(usage.id, result.usage.input + result.usage.cacheRead + result.usage.cacheWrite, result.usage.output);
+      if (result.text || result.cards.length || result.blocks.length) {
+        await saveReply({ text: result.text, cards: result.cards, blocks: result.blocks, parts: result.parts, usage: result.usage });
+      } else {
+        await saveReply({ error: { code: 'upstream', message: '답을 만들지 못했습니다' } });
+      }
+    } catch (err) {
+      if (upstream.signal.aborted) { /* 멈추기: the stop note is already saved */ }
+      else if (err instanceof Anthropic.RateLimitError) await fail('rate_limit', 'AI 서버가 바쁩니다. 잠시 뒤에 다시 시도해 주세요');
+      else if (err instanceof Anthropic.BadRequestError) {
+        console.error('[coach] bad request', err.message);
+        await fail('upstream', '요청을 처리하지 못했습니다');
+      } else if (err instanceof Anthropic.APIError) {
+        console.error('[coach] api error', err.status, err.message);
+        await fail('upstream', 'AI 서버에 연결하지 못했습니다. 잠시 뒤에 다시 시도해 주세요');
+      } else {
+        console.error('[coach] failed', err);
+        await fail('upstream', '답을 만들지 못했습니다');
+      }
+    } finally {
+      clearInterval(ping);
+      clearInterval(stopCheck);
+      // assigned in the stream callbacks, which TypeScript does not follow
+      const c = ctl as ReadableStreamDefaultController<Uint8Array> | null;
+      ctl = null;
+      try { c?.close(); } catch { /* already closed */ }
+    }
+  })();
+  // keeps the function alive until the turn is saved, even when the client is gone
+  after(() => job);
   return new Response(stream, { headers: SSE_HEADERS });
 }

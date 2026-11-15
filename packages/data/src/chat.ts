@@ -56,3 +56,25 @@ export async function loadConversation(client: SupabaseClient, want: { threadId?
   const turns = threadId ? turnsFromMessages(await loadThreadMessages(client, threadId)) : [];
   return { threads, threadId, turns };
 }
+
+export type SavedReply =
+  | { kind: 'turn'; turn: Extract<Turn, { role: 'assistant' }> }
+  | { kind: 'stopped' }
+  | { kind: 'error'; message: string };
+
+/**
+ * The saved answer for a reply id, or null while the server is still writing it. The server finishes a turn
+ * even after the client lost the stream, then saves the answer (or an error note) under the id the client
+ * sent; a stop request saves a stopped note under the same id.
+ */
+export async function loadSavedReply(client: SupabaseClient, replyId: string): Promise<SavedReply | null> {
+  const { data, error } = await client.from('chat_messages').select('id,role,content,created_at').eq('id', replyId).maybeSingle();
+  if (error) throw new Error(error.message);
+  const row = data as ChatMessageRow | null;
+  if (!row) return null;
+  const c = (row.content && typeof row.content === 'object' ? row.content : {}) as { stopped?: unknown; error?: { message?: unknown } };
+  if (c.stopped) return { kind: 'stopped' };
+  if (c.error) return { kind: 'error', message: typeof c.error.message === 'string' ? c.error.message : '답을 만들지 못했습니다' };
+  const turn = turnsFromMessages([row])[0];
+  return turn && turn.role === 'assistant' ? { kind: 'turn', turn } : { kind: 'error', message: '답을 만들지 못했습니다' };
+}

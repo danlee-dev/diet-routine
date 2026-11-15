@@ -5,7 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { DEFAULT_PROGRAM, hhmm, planReminders } from '@diet/core';
 import { CoachSession, parseToolInput, SnapshotZ, type CoachCard } from '@diet/core/coach';
 import {
-  applyCard, cardApplied, coachMarks, coachSnapshot, completeWorkout, DataStore, loadConversation, patchContained, recentDayStats, setDay, setWeight,
+  applyCard, cardApplied, coachMarks, coachSnapshot, completeWorkout, DataStore, loadConversation, loadSavedReply, patchContained, recentDayStats, setDay, setWeight,
   TABLES, todayView, toggleMeal, undoByRows, undoableByRows, effectivePlan, workoutPlan, type Env, type Row,
 } from '../src';
 
@@ -225,5 +225,29 @@ describe('loading saved conversations', () => {
   it('starts empty when there is no thread yet', async () => {
     const { client } = fakeClient({});
     expect(await loadConversation(client)).toEqual({ threads: [], threadId: null, turns: [] });
+  });
+
+  it('picks up a saved answer by its reply id after the stream was lost', async () => {
+    const { client } = await db();
+    const r = await loadSavedReply(client, '33333333-3333-4333-8333-333333333333');
+    expect(r?.kind === 'turn' && r.turn.parts.map((p) => p.kind)).toEqual(['text', 'card']);
+    expect(await loadSavedReply(client, '44444444-4444-4444-8444-444444444444')).toBeNull();
+  });
+
+  it('reads stop and error notes, and keeps them out of the transcript', async () => {
+    const stop = '55555555-5555-4555-8555-555555555555';
+    const err = '66666666-6666-4666-8666-666666666666';
+    const { client } = fakeClient({
+      chat_threads: [{ id: t1, title: '간식', created_at: '2026-11-17T01:00:00Z', updated_at: '2026-11-17T01:05:00Z', deleted_at: null }],
+      chat_messages: [
+        { id: 'u1', thread_id: t1, role: 'user', content: { text: '간식 건너뛸래' }, created_at: '2026-11-17T01:00:00Z', deleted_at: null },
+        { id: stop, thread_id: t1, role: 'assistant', content: { stopped: true }, created_at: '2026-11-17T01:00:03Z', deleted_at: null },
+        { id: 'u2', thread_id: t1, role: 'user', content: { text: '다시' }, created_at: '2026-11-17T01:01:00Z', deleted_at: null },
+        { id: err, thread_id: t1, role: 'assistant', content: { error: { code: 'rate_limit', message: 'AI 서버가 바쁩니다' } }, created_at: '2026-11-17T01:01:05Z', deleted_at: null },
+      ],
+    });
+    expect(await loadSavedReply(client, stop)).toEqual({ kind: 'stopped' });
+    expect(await loadSavedReply(client, err)).toEqual({ kind: 'error', message: 'AI 서버가 바쁩니다' });
+    expect((await loadConversation(client)).turns.map((t) => t.role)).toEqual(['user', 'user']);
   });
 });
