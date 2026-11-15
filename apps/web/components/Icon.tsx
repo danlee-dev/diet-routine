@@ -1,6 +1,6 @@
 import {
   Activity, AlarmClock, Apple, ArrowLeftRight, ArrowUpRight, Copy, Download, Share, Backpack, Ban, Bed, Building2, CalendarCheck, Car, Check,
-  ChevronDown, ChevronLeft, ChevronRight, ClipboardPaste, Clock, Cloud, CloudOff, Delete, Drumstick, Dumbbell, Footprints, GlassWater, HeartPulse,
+  ChevronDown, ChevronLeft, ChevronRight, ClipboardPaste, Clock, Cloud, CloudOff, CloudRain, CloudSnow, Minus, Package, Pencil, Route, Trash2, Delete, Drumstick, Dumbbell, Footprints, GlassWater, HeartPulse,
   House, LogIn, LogOut, Mail, MessageCircle, Moon, MoonStar, PanelLeftClose, PanelLeftOpen, Play, Plus, RotateCcw, Search, Settings, ShoppingBasket,
   Signpost, SkipForward, Store, Sun, Sunrise, Timer, Tv, UserRound, Utensils, UtensilsCrossed, Volume2, VolumeX, Weight, Wine, X,
   type LucideIcon,
@@ -11,7 +11,7 @@ const MAP: Record<string, LucideIcon> = {
   activity: Activity, 'alarm-clock': AlarmClock, apple: Apple, 'arrow-left-right': ArrowLeftRight, 'arrow-up-right': ArrowUpRight,
   backpack: Backpack, ban: Ban, bed: Bed, 'building-2': Building2, 'calendar-check': CalendarCheck, car: Car, check: Check,
   'chevron-down': ChevronDown, 'chevron-left': ChevronLeft, 'chevron-right': ChevronRight, 'clipboard-paste': ClipboardPaste, clock: Clock, cloud: Cloud,
-  'cloud-off': CloudOff, delete: Delete, drumstick: Drumstick, dumbbell: Dumbbell, footprints: Footprints, 'glass-water': GlassWater,
+  'cloud-off': CloudOff, 'cloud-rain': CloudRain, 'cloud-snow': CloudSnow, minus: Minus, package: Package, pencil: Pencil, route: Route, trash: Trash2, delete: Delete, drumstick: Drumstick, dumbbell: Dumbbell, footprints: Footprints, 'glass-water': GlassWater,
   'heart-pulse': HeartPulse, house: House, 'log-in': LogIn, 'log-out': LogOut, mail: Mail, 'message-circle': MessageCircle, moon: Moon, 'moon-star': MoonStar,
   'panel-left-close': PanelLeftClose, 'panel-left-open': PanelLeftOpen, play: Play, plus: Plus, 'rotate-ccw': RotateCcw,
   search: Search, settings: Settings, 'shopping-basket': ShoppingBasket, signpost: Signpost, 'skip-forward': SkipForward,

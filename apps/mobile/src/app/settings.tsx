@@ -13,6 +13,7 @@ import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Row, Section } from '@/components/list';
 import { HealthNotifySection } from '@/components/settings/HealthNotifySection';
+import { WeatherSection } from '@/components/settings/WeatherSection';
 import { useToast } from '@/components/ui';
 
 function GoogleMark({ size = 18 }: { size?: number }) {
@@ -165,6 +166,8 @@ export default function SettingsScreen() {
         <Row title="단백질 최소" value={`${P.proteinFloor}g`} />
         <Row title="내 정보 다시 입력" sub="답을 고치면 식단, 운동, 장보기를 다시 짭니다" chevron onPress={() => router.push('/answers')} />
       </Section>
+
+      <WeatherSection />
 
       <Section title="항상 지키는 것" inset={52}>
         {todayView(env).rules.map((k) => <Row key={k.title} icon={k.icon} title={k.title} sub={k.desc} />)}

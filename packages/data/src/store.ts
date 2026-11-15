@@ -104,6 +104,10 @@ export class DataStore {
   where<T extends Row>(t: TableName, pred: (r: T) => boolean): T[] {
     return this.all<T>(t).filter(pred);
   }
+  /** Rows including soft-deleted ones (e.g. to tell "never made" from "made, then removed"). */
+  allWithDeleted<T extends Row>(t: TableName): T[] {
+    return Object.values(this.s.tables[t]) as T[];
+  }
   pendingCount(): number {
     return this.s.outbox.length;
   }

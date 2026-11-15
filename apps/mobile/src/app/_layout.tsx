@@ -74,6 +74,7 @@ export default function RootLayout() {
             <Stack.Screen name="sheet/time" options={sheet('fitToContents', { wheel: true })} />
             <Stack.Screen name="sheet/weight" options={sheet('fitToContents', { wheel: true })} />
             <Stack.Screen name="sheet/steps" options={sheet()} />
+            <Stack.Screen name="sheet/pantry" options={sheet('fitToContents', { wheel: true })} />
             <Stack.Screen name="sheet/scenario" options={sheet()} />
             <Stack.Screen name="sheet/food" options={sheet([0.75, 1])} />
             <Stack.Screen name="sheet/meal" options={sheet([0.8, 1])} />

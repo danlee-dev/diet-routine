@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_PROGRAM, generatePlan, RunTracker } from '@diet/core';
-import { completeOnboarding, completeWorkout, DataStore, logFood, saveRun, setDay, setMealOverride, setRoutineItems, setTodaySession, setWeekDay, setWeight, skipMeal, toggleChecklist, toggleMeal, type Env } from '@diet/data';
+import { completeOnboarding, completeWorkout, DataStore, logFood, savePreset, saveRun, setDay, setMealOverride, setRoutineItems, setStock, setTodaySession, setWeatherCity, setWeekDay, setWeight, skipMeal, toggleBought, toggleChecklist, toggleMeal, type Env } from '@diet/data';
 
 const env = Object.fromEntries(
   readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
@@ -34,6 +34,11 @@ const runStart = new Date(2026, 10, 15, 19, 0);
 const tracker = new RunTracker(runStart.getTime());
 for (let i = 0; i <= 400; i++) tracker.ingest({ lat: 37.5665 + i * 0.000027, lng: 126.978, t: runStart.getTime() + i * 1000, acc: 5, speed: 3, alt: 30 + i * 0.02, altAcc: 4 });
 saveRun(e, { id: randomUUID(), kind: 'run', startedAt: runStart, endedAt: new Date(runStart.getTime() + 400_000), summary: tracker.summary(runStart.getTime() + 400_000) });
+// pantry counts and the weather city live in profiles.preferences; presets are foods rows (source 'preset')
+setStock(e, 'n1', 8);
+toggleBought(e, 'n8');
+setWeatherCity(e, 'busan');
+savePreset(e, { name: '연어 포케', serving: '1볼', kcal: 520, protein: 32, group: 'meal' });
 await store.flush();
 
 const snap = JSON.parse(snapshot.value!) as { tables: Record<string, Record<string, Record<string, unknown>>> };

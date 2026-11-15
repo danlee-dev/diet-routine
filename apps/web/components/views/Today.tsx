@@ -5,13 +5,14 @@ import {
   type MealKey, type RoutineKey,
 } from '@diet/core';
 import {
-  applyRebalance, focusNow, importLegacyData, overCauses, rebalanceToday, rebalanceWorthShowing, recommendation, remainingKcal, setWake, setWater,
-  skipMeal, timeline, todayView, toggleMeal,
+  applyRebalance, focusNow, importLegacyData, overCauses, rainSuggestion, rebalanceToday, rebalanceWorthShowing, recommendation, remainingKcal, setWake, setWater,
+  skipMeal, swapWalkForWorkout, timeline, todayView, toggleMeal,
   type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
 import { useAuth, useEnv, useMinuteTick } from '@/lib/hooks';
 import { devicePref, getSupabase, readLegacyLocal } from '@/lib/client';
 import { SuggestionCards } from '../Suggestions';
+import { useForecast } from '@/lib/weather';
 import { Icon } from '../Icon';
 import { PageHead, useOverlay } from '../ui';
 import { RulesSheet, StepsSheet, TimeSheet, WeightSheet } from '../sheets';
@@ -355,6 +356,33 @@ function RebalanceCard({ v }: { v: TodayView }) {
   );
 }
 
+/** Rain while one would walk today: offer the home workout that is due instead (one tap, undo in the toast). */
+function RainNote({ v }: { v: TodayView }) {
+  const env = useEnv();
+  const { toast } = useOverlay();
+  const hours = useForecast(env, v.session === 'walk');
+  const dkey = `rain:${v.ctx.key}`;
+  const [kept, setKept] = useState(() => devicePref.get<boolean>(dkey, false));
+  const s = hours ? rainSuggestion(env, v, hours) : null;
+  if (!s || kept) return null;
+  const r = v.routines[s.routine];
+  return (
+    <section className="note-row rain" aria-label="날씨">
+      <Icon name={s.check.snow ? 'cloud-snow' : 'cloud-rain'} />
+      <span className="tx">
+        <b>{s.text}</b>
+        <span>걷는 날이지만 오늘은 집에서 {r.name}({r.focus})로 바꿀 수 있습니다</span>
+      </span>
+      <span className="acts">
+        <button type="button" className="chip-btn" onClick={() => { const undo = swapWalkForWorkout(env, s.routine); toast(`오늘은 걷기 대신 ${r.name}를 합니다`, undo); }}>
+          <Icon name="dumbbell" size="sm" />홈트로 바꾸기
+        </button>
+        <button type="button" className="link-btn quiet" onClick={() => { devicePref.set(dkey, true); setKept(true); }}>그대로 걷기</button>
+      </span>
+    </section>
+  );
+}
+
 /** Signed out: one quiet line pointing at Settings. Signed in but stuck: how many records are waiting. */
 function SyncBanner() {
   const env = useEnv();
@@ -417,6 +445,7 @@ export function Today({ nav }: { nav: TodayNav }) {
           <FocusCard f={f} v={v} nav={nav} />
           <RebalanceCard v={v} />
           <SuggestionCards />
+          <RainNote v={v} />
           <div className="only-phone">
             <QuickLog v={v} />
             <Reco v={v} nav={nav} />

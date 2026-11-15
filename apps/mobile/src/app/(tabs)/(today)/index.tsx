@@ -15,6 +15,7 @@ import { Icon } from '@/components/Icon';
 import { Btn, Orb, useToast } from '@/components/ui';
 import { RebalanceCard } from '@/components/RebalanceCard';
 import { SuggestionCards } from '@/components/SuggestionCards';
+import { RainNote } from '@/components/RainNote';
 
 function useMealActions(v: TodayView) {
   const env = useEnv();
@@ -185,7 +186,7 @@ function Reco({ v, t }: { v: TodayView; t: Theme }) {
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, paddingVertical: 12, paddingHorizontal: 4 }}>
       <Icon name={r.icon} size={18} color={t.fg2} />
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={{ color: t.fg, fontSize: 14.5, fontWeight: '600' }}>{r.title}</Text>
+        <Text numberOfLines={2} lineBreakStrategyIOS="hangul-word" style={{ color: t.fg, fontSize: 14.5, fontWeight: '600' }}>{r.title}</Text>
         <Text style={{ color: t.muted, fontSize: 13 }}>{r.body}</Text>
       </View>
       {r.action && <Btn small kind="ghost" label={r.action.label} onPress={run} />}
@@ -270,6 +271,7 @@ export default function TodayScreen() {
       <FocusCard f={f} v={v} t={t} />
       <RebalanceCard v={v} />
       <SuggestionCards />
+      <RainNote v={v} />
       <QuickLog v={v} t={t} />
       <Reco v={v} t={t} />
       <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', marginTop: 24, marginBottom: 4 }}>오늘 흐름</Text>
