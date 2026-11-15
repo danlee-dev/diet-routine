@@ -89,3 +89,13 @@ describe('rebalance today', () => {
     expect(after.over).toBeLessThan(p.over);
   });
 });
+
+describe('over causes', () => {
+  it('names food logged on top of the plan, not partial meals', async () => {
+    const { logFood, overCauses, eatPartial } = await import('../src');
+    const env = await makeEnv();
+    eatPartial(env, '2026-11-15', 'snack', [true, false]);
+    logFood(env, { date: '2026-11-15', slot: 'extra', name: '후라이드 치킨', amount: '반 마리', kcal: 1150, protein: 70, source: 'preset' });
+    expect(overCauses(todayView(env))).toEqual([{ name: '후라이드 치킨', kcal: 1150 }]);
+  });
+});

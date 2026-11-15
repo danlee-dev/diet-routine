@@ -126,3 +126,26 @@ export const rebalanceWorthShowing = (p: Proposal): boolean =>
 /** Write the proposal as day adjustments (today's cuts and adds, carry-over on the next days). Returns undo. */
 export const applyRebalance = (env: Env, p: Proposal, reason?: string): (() => void) =>
   addAdjustments(env, proposalToAdjustments(p, reason ?? (p.over > 0 ? `계획대로면 ${p.over}kcal 넘쳐서 맞췄습니다` : '단백질이 모자라서 더했습니다')));
+
+/**
+ * What pushed the day over, in the user's words: food logged on top of the plan, and meals eaten
+ * differently that came in above the planned meal. Partial meals (below plan) are not causes.
+ */
+export function overCauses(v: TodayView): { name: string; kcal: number }[] {
+  const out: { name: string; kcal: number }[] = [];
+  const replaced = new Map<string, { names: string[]; kcal: number }>();
+  for (const e of v.entries) {
+    if (e.slot === 'extra' || e.kind === 'extra') out.push({ name: e.name, kcal: e.kcal });
+    else if (e.kind === 'replace') {
+      const r = replaced.get(e.slot) ?? { names: [], kcal: 0 };
+      r.names.push(e.name);
+      r.kcal += e.kcal;
+      replaced.set(e.slot, r);
+    }
+  }
+  for (const [slot, r] of replaced) {
+    const planned = v.meals.find((m) => m.key === slot)?.kcal ?? 0;
+    if (r.kcal - planned > 30) out.push({ name: r.names.join(', '), kcal: r.kcal - planned });
+  }
+  return out.sort((a, b) => b.kcal - a.kcal);
+}
