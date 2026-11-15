@@ -86,6 +86,8 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal): P
       // on the last allowed round the model must answer with what it has
       ...(last ? { tool_choice: { type: 'none' as const } } : {}),
       messages,
+      // caches the conversation so each tool round trip re-reads it at the cache price
+      cache_control: { type: 'ephemeral' },
       thinking: { type: 'adaptive', display: 'updates' },
       output_config: { effort: 'medium' },
       betas: BETAS,

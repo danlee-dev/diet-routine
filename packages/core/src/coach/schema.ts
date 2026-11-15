@@ -133,8 +133,8 @@ export const SnapshotZ = z.object({
 
 export const ImageInputZ = z.object({
   media_type: z.enum(['image/jpeg', 'image/png', 'image/webp']),
-  /** base64 without the data: prefix; ~1.5 MB of base64 covers a 1568px JPEG */
-  data: z.string().min(16).max(2_000_000).regex(/^[A-Za-z0-9+/=]+$/, 'base64'),
+  /** base64 without the data: prefix; the client re-encodes until a photo fits (see apps/web/components/coach/image.ts) */
+  data: z.string().min(16).max(1_400_000).regex(/^[A-Za-z0-9+/=]+$/, 'base64'),
 });
 
 export const HistoryTurnZ = z.object({

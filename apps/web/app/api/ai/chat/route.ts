@@ -9,7 +9,7 @@ import { SSE_HEADERS, sseFrame, ssePing } from '@/lib/ai/sse';
 
 export const maxDuration = 300;
 
-const MAX_BODY = 6_000_000; // three downscaled photos plus history fit well under this
+const MAX_BODY = 4_400_000; // under Vercel's 4.5 MB function body limit; three downscaled photos fit
 
 const json = (status: number, code: CoachErrorCode, message: string, headers?: HeadersInit) =>
   Response.json({ error: { code, message } }, { status, headers });
