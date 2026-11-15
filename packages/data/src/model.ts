@@ -2,7 +2,7 @@
 // so a check on one device produces exactly the same rows and totals on the other.
 import {
   addDays, adjustedTarget, applyPlanChanges, effectiveRules, effectiveShop, partialMeal, dayCtx, effectiveRoutines, effectiveWeek, mealCheckId, sessionFor, decodeLegacyBackup, defaultScen, dueOrders, legacyToRows, minutesOf, plan, planEntry, previousWeight,
-  programDate, programKey, rolling7, stepsGoal, summary, weightSeries, weightStats,
+  programDate, programKey, rolling7, stepsGoal, summary, weightSeries, weightStats, trendByDate, daysBetween, parseKey,
   type ChecklistRow, type DayCtx, type DayRow, type EatoutSlot, type MealEntryRow, type MealKey, type PlannedMeal,
   type AdjustedMeal, type DayAdjustment, type PlanOverride, type RuleCard, type ShopPlan, type Program, type RoutineDef, type RoutineKey, type ScenId, type Summary,
   type WeekType, type WeightRow, type WorkoutRow,
@@ -162,7 +162,13 @@ export function streaks(env: Env, dayIdx: number): { streak: number; workouts: n
 export function weightData(env: Env, dayIdx: number) {
   const rows = env.store.all<WeightRow>('weights');
   const series = weightSeries(env.program, rows, Math.max(0, dayIdx));
-  return { series, avg: rolling7(series), stats: weightStats(env.program, series) };
+  // smoothed trend over every weigh-in (earlier ones included), placed on the program days
+  const start = parseKey(env.program.startDate);
+  const last = Math.min(env.program.days - 1, Math.max(0, dayIdx));
+  const trend = trendByDate(rows.filter((r) => !r.deleted_at && r.kg > 30 && r.kg < 250).map((r) => ({ key: r.date, kg: r.kg })))
+    .map((p) => ({ i: daysBetween(start, parseKey(p.key)), w: p.kg }))
+    .filter((p) => p.i >= 0 && p.i <= last);
+  return { series, avg: rolling7(series), trend, stats: weightStats(env.program, series) };
 }
 
 export const ordersDue = (env: Env) => {
@@ -185,7 +191,8 @@ export function setDay(env: Env, date: string, patch: Partial<DayRow>): void {
 /** The day's meals as planned: situation and wake time, then plan versions and that day's adjustments. */
 export function mealsFor(env: Env, date: string): AdjustedMeal[] {
   const d = dayRow(env, date);
-  return applyPlanChanges(plan({ scen: d.scenario ?? 'home', eatout: d.eatout_slot ?? 'lunch', wake: d.wake_min }), effectivePlan(env, date), adjustmentsFor(env, date));
+  // the weekday matters for meal changes limited to some days ("평일 아침 빼기")
+  return applyPlanChanges(plan({ scen: d.scenario ?? 'home', eatout: d.eatout_slot ?? 'lunch', wake: d.wake_min }), effectivePlan(env, date), adjustmentsFor(env, date), new Date(`${date}T00:00:00`).getDay());
 }
 
 /**

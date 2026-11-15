@@ -218,7 +218,7 @@ export const PACE_MAX = 1.0;
 
 /**
  * A new daily target when the current one loses slower than 0.7 or faster than 1.0 kg a week. Moves at most
- * 300 kcal at a time, never below the sex minimum (or the current target, if that is already lower), and
+ * 300 kcal at a time, never below the sex minimum (1,500 when unknown; or the current target, if already lower), and
  * stays quiet for changes under 50 kcal.
  */
 export function adaptiveTarget(est: MaintenanceEstimate, current: number, sex?: Sex | null): TargetProposal | null {
@@ -226,7 +226,8 @@ export function adaptiveTarget(est: MaintenanceEstimate, current: number, sex?: 
   if (pace >= PACE_MIN && pace <= PACE_MAX) return null;
   const aim = pace < PACE_MIN ? PACE_MIN + 0.05 : PACE_MAX - 0.05;
   let next = round10(est.kcal - (aim * KCAL_PER_KG) / 7);
-  const floor = Math.min(MIN_KCAL[sex ?? 'female'], current);
+  // unknown sex: the higher floor, the cautious side for a cut
+  const floor = Math.min(MIN_KCAL[sex ?? 'male'], current);
   next = Math.max(next, floor);
   next = Math.min(current + 300, Math.max(current - 300, next));
   if (Math.abs(next - current) < 50) return null;
