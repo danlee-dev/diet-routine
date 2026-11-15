@@ -256,9 +256,10 @@ export function planReminders(
   }
 
   // 18:30 walk when the day is under 60% of the step goal. Planned only once the day has steps to judge
-  // (from noon), so tomorrow's plan never nudges on a count of zero.
+  // (from noon, and a count above zero: 0 is also what a day without Health or a manual entry shows),
+  // so tomorrow's plan and people who never log steps are not nudged on nothing.
   const steps = v.day.steps;
-  if (v.stepsGoal && steps != null && v.nowMin >= 12 * 60 && steps < v.stepsGoal * STEPS_SHARE) {
+  if (v.stepsGoal && steps != null && steps > 0 && v.nowMin >= 12 * 60 && steps < v.stepsGoal * STEPS_SHARE) {
     const left = v.stepsGoal - steps;
     add({
       kind: 'steps', at: STEPS_AT, title: `${fmt(left)}보 남았습니다`,

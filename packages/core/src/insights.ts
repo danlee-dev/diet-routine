@@ -430,7 +430,8 @@ export function weeklyRecap(days: readonly RecapDay[], range: { from: string; to
   const complete = inRange.filter((d) => d.complete);
   const score = (d: RecapDay) =>
     (keptDay(d) ? 100 : 0) + (d.workout ? 10 : 0) + (d.runs.length ? 10 : 0) + (d.steps >= d.stepsGoal ? 10 : 0) - Math.abs(d.eaten - d.target) / 100;
-  const top = [...complete].sort((a, b) => score(b) - score(a) || a.key.localeCompare(b.key))[0];
+  // "가장 잘 지킨 날" only among kept days: a week without one shows none
+  const top = [...kept].sort((a, b) => score(b) - score(a) || a.key.localeCompare(b.key))[0];
   const best = top ? {
     key: top.key, eaten: top.eaten, target: top.target,
     notes: [

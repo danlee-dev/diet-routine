@@ -213,6 +213,12 @@ describe('weekly recap', () => {
     expect(t.body).toMatch(/^추세 \d+\.\dkg \(−\d\.\d\) · 지킨 날 5\/7일 · 홈트 1회 · 달리기 3\.2km\. 다음 주 목표는 73\.5~74\.5kg입니다\.$/);
   });
 
+  it('names no best day in a week without a kept day', () => {
+    const r = weeklyRecap([d(0, { eaten: 2000 }), d(1, { complete: false })], { from: '2026-11-16', to: '2026-11-22' }, '2026-11-17', []);
+    expect(r.kept).toBe(0);
+    expect(r.best).toBeNull();
+  });
+
   it('only counts days up to today', () => {
     const r = weeklyRecap([d(0), d(1), d(2), d(3), d(4)], { from: '2026-11-16', to: '2026-11-22' }, '2026-11-18', []);
     expect(r.days).toBe(3);

@@ -34,6 +34,7 @@ describe('18:30 steps nudge', () => {
     expect(planReminders(day({ steps: 2400, goal: 4000 }), null).some((x) => x.kind === 'steps')).toBe(false);
     expect(planReminders(day({ steps: 0, goal: 4000, now: H(9) }), null).some((x) => x.kind === 'steps')).toBe(false);
     expect(planReminders(day({ goal: 4000 }), null).some((x) => x.kind === 'steps')).toBe(false);
+    expect(planReminders(day({ steps: 0, goal: 4000, now: H(13) }), null).some((x) => x.kind === 'steps')).toBe(false);
     expect(planReminders(day({ steps: 100, goal: 4000, now: H(18, 40) }), null).some((x) => x.kind === 'steps')).toBe(false);
   });
 });
