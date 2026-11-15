@@ -1,5 +1,6 @@
 // AI coach on iPhone: same request, events and card handling as the web panel (shared code in
 // @diet/core/coach and @diet/data), streamed with expo/fetch.
+import type { CoachPhoto } from './photo';
 import { useSyncExternalStore } from 'react';
 import { fetch } from 'expo/fetch';
 import * as Crypto from 'expo-crypto';
@@ -52,13 +53,13 @@ const undos = new Map<string, Undo>();
 const patch = (id: string, fn: (t: AssistantTurn) => AssistantTurn) =>
   setState((s) => ({ ...s, turns: s.turns.map((t) => (t.role === 'assistant' && t.id === id ? fn(t) : t)) }));
 
-async function send(env: Env, text: string) {
+async function send(env: Env, text: string, photos: CoachPhoto[] = []) {
   const message = text.trim();
-  if (abort || !message) return;
+  if (abort || (!message && !photos.length)) return;
   const ac = new AbortController();
   abort = ac;
   const history = historyFor(state.turns);
-  const user: UserTurn = { role: 'user', id: Crypto.randomUUID(), text: message, images: [] };
+  const user: UserTurn = { role: 'user', id: Crypto.randomUUID(), text: message, images: photos.map((p) => p.uri) };
   const reply = newAssistantTurn(Crypto.randomUUID());
   setState((s) => ({ turns: [...s.turns, user, reply], busy: true }));
   try {
@@ -71,7 +72,7 @@ async function send(env: Env, text: string) {
     const res = await fetch(COACH_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ threadId: thread, message, images: [], history, snapshot: coachSnapshot(env, timeZone()) }),
+      body: JSON.stringify({ threadId: thread, message, images: photos.map((p) => ({ media_type: p.media_type, data: p.data })), history, snapshot: coachSnapshot(env, timeZone()) }),
       signal: ac.signal,
     });
     if (!res.ok || !res.body) {
@@ -102,7 +103,7 @@ export function useCoachChat(env: Env) {
   return {
     turns,
     busy,
-    send: (text: string) => send(env, text),
+    send: (text: string, photos: CoachPhoto[] = []) => send(env, text, photos),
     stop: () => abort?.abort(),
     reset: () => {
       abort?.abort();

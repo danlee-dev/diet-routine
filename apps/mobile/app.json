@@ -2,7 +2,7 @@
   "expo": {
     "name": "DietRoutine",
     "slug": "diet-routine",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "dietroutine",
@@ -71,6 +71,14 @@
           "NSHealthShareUsageDescription": "걸음 수, 체중, 수면을 읽어 오늘 기록을 채우고 기상 시간을 제안합니다.",
           "NSHealthUpdateUsageDescription": "앱에서 기록한 체중과 홈트를 건강 앱에 저장합니다.",
           "background": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "음식 사진과 성분표를 코치에게 보내려고 사진을 엽니다.",
+          "cameraPermission": "음식, 메뉴판, 성분표를 찍어 코치에게 보내려고 카메라를 씁니다.",
+          "microphonePermission": false
         }
       ]
     ],

@@ -1,7 +1,7 @@
-// AI coach chat (modal). Same events and change cards as the web panel; text only until a photo picker is added.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Keyboard, LayoutAnimation, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+// AI coach chat (a tab, or a modal). Same events and change cards as the web panel; text and up to three photos.
+import { useRef, useState, type ReactNode } from 'react';
+import { ActionSheetIOS, Image, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
+import Animated, { FadeInDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
@@ -12,6 +12,7 @@ import { coachSnapshot } from '@diet/data';
 import { suggestedPrompts, turnSeconds, type AssistantTurn, type CoachCard, type CoachStep, type TurnPart } from '@diet/core/coach';
 import { useEnv } from '@/lib/hooks';
 import { emitCoachFocus, useCoachChat } from '@/lib/coach';
+import { pickPhotos, type CoachPhoto } from '@/lib/photo';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Btn } from '@/components/ui';
 
@@ -28,7 +29,10 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
   const insets = useSafeAreaInsets();
   const chat = useCoachChat(env);
   const [draft, setDraft] = useState('');
-  const [kbPad, setKbPad] = useState(0);
+  const [photos, setPhotos] = useState<CoachPhoto[]>([]);
+  // the input grows with its text (up to 120) and drops back to one line when sent; iOS won't shrink it by itself
+  const [inputH, setInputH] = useState(40);
+  const [preparing, setPreparing] = useState(false);
   const [height, setHeight] = useState(0);
   const win = useWindowDimensions();
   const scroll = useRef<ScrollViewInstance>(null);
@@ -39,36 +43,51 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
   const next = snap.meals.find((m) => m.state === 'pending');
   const prompts = suggestedPrompts(next ? { key: next.key, name: next.name } : undefined, Number(snap.now.time.slice(0, 2)));
 
-  // This screen's bottom is the screen's bottom (as a page-sheet modal and as a full screen), so the keyboard
-  // covers exactly (screen height - keyboard top). KeyboardAvoidingView and measureInWindow measure inside the
-  // sheet's own coordinates and come out short by the sheet's top offset.
-  useEffect(() => {
-    const animate = (duration: number) => LayoutAnimation.configureNext({ duration: duration || 250, update: { type: LayoutAnimation.Types.keyboard } });
-    const change = Keyboard.addListener('keyboardWillChangeFrame', (e) => {
-      animate(e.duration);
-      setKbPad(Math.max(0, win.height - e.endCoordinates.screenY));
-    });
-    const hide = Keyboard.addListener('keyboardWillHide', (e) => { animate(e.duration); setKbPad(0); });
-    return () => { change.remove(); hide.remove(); };
-  }, [win.height]);
+  // The input rides on the keyboard frame by frame (the system's own spring, interactive dismiss included),
+  // instead of jumping between two padding values. This screen's bottom is the screen's bottom (tab or sheet),
+  // so the keyboard covers exactly its height; at rest the input keeps clear of the tab bar / home indicator.
+  const kb = useAnimatedKeyboard();
+  const restPad = Math.max(insets.bottom, 12) + (embedded ? 14 : 0);
+  const inputPad = useAnimatedStyle(() => ({ paddingBottom: Math.max(restPad, kb.height.value + 8) }));
   // As a page sheet the screen starts below the status bar; opened from a deep link it is full screen.
   const topInset = height ? Math.max(0, insets.top - (win.height - height)) : 0;
 
   const submit = (text = draft) => {
-    if (chat.busy || !text.trim()) return;
+    if (chat.busy || (!text.trim() && !photos.length)) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     stick.current = true;
-    void chat.send(text);
+    void chat.send(text, photos);
     setDraft('');
+    setPhotos([]);
+    setInputH(40);
   };
+  // photos: food, a menu, a nutrition label; up to three per message, analysed together with the text
+  const attach = () => {
+    const left = 3 - photos.length;
+    if (left <= 0 || preparing) return;
+    ActionSheetIOS.showActionSheetWithOptions({ options: ['사진 찍기', '앨범에서 고르기', '취소'], cancelButtonIndex: 2, title: '음식, 메뉴판, 성분표 사진' }, (i) => {
+      if (i === 2) return;
+      setPreparing(true);
+      void pickPhotos(i === 0 ? 'camera' : 'library', left)
+        .then((r) => {
+          if (r.denied) ActionSheetIOS.showActionSheetWithOptions({ title: '카메라 권한이 꺼져 있습니다', message: '설정 앱 > 다루 > 카메라에서 켜 주세요', options: ['확인'], cancelButtonIndex: 0 }, () => {});
+          if (r.photos.length) setPhotos((p) => [...p, ...r.photos].slice(0, 3));
+        })
+        .finally(() => setPreparing(false));
+    });
+  };
+  const canSend = !!draft.trim() || photos.length > 0;
 
+  // 보기: open the screen that owns the target; that screen switches section / scrolls to it
   const view = (target: string) => {
-    emitCoachFocus(target);
-    router.dismissTo(target.startsWith('plan:') ? '/plan' : '/');
+    emitCoachFocus(target as Parameters<typeof emitCoachFocus>[0]);
+    const route = target.startsWith('plan:workout') ? '/workout-tab' : target.startsWith('plan:') ? '/plan' : '/';
+    if (embedded) router.navigate(route);
+    else router.dismissTo(route);
   };
 
   return (
-    <View onLayout={(e) => setHeight(e.nativeEvent.layout.height)} style={{ flex: 1, backgroundColor: t.bg, paddingBottom: kbPad }}>
+    <View onLayout={(e) => setHeight(e.nativeEvent.layout.height)} style={{ flex: 1, backgroundColor: t.bg }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 20, paddingTop: topInset + 22, paddingBottom: 8 }}>
         <View style={{ flex: 1 }}>
           <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '600' }}>
@@ -110,10 +129,17 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
             </View>
           </View>
         ) : chat.turns.map((turn) => turn.role === 'user' ? (
-          <View key={turn.id} style={{ alignItems: 'flex-end' }}>
-            <View style={{ maxWidth: '86%', paddingHorizontal: 15, paddingVertical: 10, borderRadius: R.lg, ...squircle, backgroundColor: t.fg }}>
-              <Text style={{ color: t.onFg, fontSize: 15.5, lineHeight: 22 }}>{turn.text}</Text>
-            </View>
+          <View key={turn.id} style={{ alignItems: 'flex-end', gap: 6 }}>
+            {turn.images.length > 0 && (
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {turn.images.map((uri) => <Image key={uri} source={{ uri }} style={{ width: 96, height: 96, borderRadius: 16 }} />)}
+              </View>
+            )}
+            {!!turn.text && (
+              <View style={{ maxWidth: '86%', paddingHorizontal: 15, paddingVertical: 10, borderRadius: R.lg, ...squircle, backgroundColor: t.fg }}>
+                <Text style={{ color: t.onFg, fontSize: 15.5, lineHeight: 22 }}>{turn.text}</Text>
+              </View>
+            )}
           </View>
         ) : (
           <View key={turn.id} style={{ gap: 12 }}>
@@ -122,17 +148,36 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
         ))}
       </ScrollView>
 
-      <View style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: kbPad > 0 ? 8 : Math.max(insets.bottom, 12) }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, padding: 6, paddingLeft: 14, borderRadius: R.lg, ...squircle, backgroundColor: t.surface }}>
+      {/* in the tab, keep clear of the floating tab bar */}
+      <Animated.View style={[{ paddingHorizontal: 14, paddingTop: 8 }, inputPad]}>
+        {(photos.length > 0 || preparing) && (
+          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 4, paddingBottom: 8 }}>
+            {photos.map((p, i) => (
+              <View key={p.uri}>
+                <Image source={{ uri: p.uri }} style={{ width: 64, height: 64, borderRadius: 14 }} />
+                <Pressable accessibilityLabel="사진 빼기" hitSlop={8} onPress={() => setPhotos((a) => a.filter((_, j) => j !== i))} style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11, backgroundColor: t.fg, alignItems: 'center', justifyContent: 'center' }}>
+                  <SymbolView name="xmark" size={9} tintColor={t.onFg} weight="bold" />
+                </Pressable>
+              </View>
+            ))}
+            {preparing && <View style={{ width: 64, height: 64, borderRadius: 14, backgroundColor: t.surface, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: t.muted, fontSize: 11 }}>준비 중</Text></View>}
+          </View>
+        )}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, padding: 6, paddingLeft: 6, borderRadius: R.lg, ...squircle, backgroundColor: t.surface }}>
+          <Pressable accessibilityLabel="사진 올리기" disabled={photos.length >= 3 || chat.busy} onPress={attach} hitSlop={4} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', opacity: photos.length >= 3 ? 0.35 : pressed ? 0.6 : 1 })}>
+            <SymbolView name="photo.badge.plus" size={20} tintColor={t.fg} />
+          </Pressable>
           <TextInput
             // iOS keeps the old color on existing text when the theme flips; remount (the draft lives in state)
             key={t.bg}
             value={draft}
-            onChangeText={setDraft}
-            placeholder="예: 점심에 김치찌개 먹었어"
+            onChangeText={(x) => { setDraft(x); if (!x) setInputH(40); }}
+            onContentSizeChange={(e) => setInputH(Math.min(120, Math.max(40, Math.ceil(e.nativeEvent.contentSize.height))))}
+            placeholder={photos.length ? '사진에 대해 한마디 (선택)' : '예: 점심에 김치찌개 먹었어'}
             placeholderTextColor={t.muted}
             multiline
-            style={{ flex: 1, maxHeight: 120, paddingTop: 9, paddingBottom: 9, color: t.fg, fontSize: 16, lineHeight: 21 }}
+            scrollEnabled={inputH >= 120}
+            style={{ flex: 1, height: inputH, paddingTop: 9, paddingBottom: 9, color: t.fg, fontSize: 16, lineHeight: 21 }}
             selectionColor={t.fg}
             accessibilityLabel="코치에게 보낼 말"
           />
@@ -141,12 +186,12 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
               <SymbolView name="stop.fill" size={13} tintColor={t.onFg} />
             </Pressable>
           ) : (
-            <Pressable accessibilityLabel="보내기" disabled={!draft.trim()} onPress={() => submit()} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, backgroundColor: draft.trim() ? t.fg : t.ctrl, alignItems: 'center', justifyContent: 'center', transform: [{ scale: pressed ? 0.92 : 1 }] })}>
-              <SymbolView name="arrow.up" size={16} tintColor={draft.trim() ? t.onFg : t.bg} weight="bold" />
+            <Pressable accessibilityLabel="보내기" disabled={!canSend} onPress={() => submit()} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, backgroundColor: canSend ? t.fg : t.ctrl, alignItems: 'center', justifyContent: 'center', transform: [{ scale: pressed ? 0.92 : 1 }] })}>
+              <SymbolView name="arrow.up" size={16} tintColor={canSend ? t.onFg : t.bg} weight="bold" />
             </Pressable>
           )}
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }

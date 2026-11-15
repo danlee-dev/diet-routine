@@ -1,6 +1,6 @@
 // The workout plan: this week's sessions (tap a day to change it, today only or every week) and the two
 // routines with their exercises. Used by the 운동 tab.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActionSheetIOS, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -10,6 +10,7 @@ import { useEnv } from '@/lib/hooks';
 import { squircle, type Theme } from '@/lib/theme';
 import { Btn, useToast } from '@/components/ui';
 import { Section } from '@/components/list';
+import { onCoachFocus } from '@/lib/coach';
 
 export const SESSION_NAME: Record<WeekType, string> = { A: '홈트 A · 상체', B: '홈트 B · 하체', walk: '걷기', light: '가볍게 (A 3라운드)', rest: '휴식' };
 
@@ -36,6 +37,8 @@ export function WorkoutPlan({ t }: { t: Theme }) {
   const { toast } = useToast();
   const v = todayView(env);
   const [rt, setRt] = useState<RoutineKey>(v.session === 'B' ? 'B' : 'A');
+  // 보기 on a routine card shows that routine
+  useEffect(() => onCoachFocus((target) => { const m = /^plan:workout:routine:(A|B)$/.exec(target); if (m) setRt(m[1] as RoutineKey); }), []);
   const mult = repMultiplier(v.ctx.week);
   const R2 = v.routines;
   const pickDay = (d: number) => {

@@ -1,5 +1,6 @@
 // 운동 tab: start today's session in one tap, start a run, then this week's plan and the routines.
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Pressable, RefreshControl, ScrollView, Text, View, type ScrollViewInstance } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -11,6 +12,7 @@ import { R, squircle, useTheme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn } from '@/components/ui';
 import { SESSION_NAME, WorkoutPlan } from '@/components/WorkoutPlan';
+import { onCoachFocus, takeCoachFocus } from '@/lib/coach';
 
 export default function WorkoutTab() {
   const env = useEnv();
@@ -25,9 +27,17 @@ export default function WorkoutTab() {
   const r = wp ? v.routines[wp.routine] : null;
   const min = r ? amrapOf(r) : null;
   const stepsPct = Math.min(1, v.day.steps / Math.max(1, v.stepsGoal));
+  // 보기 from the coach (plan:workout:*): bring the weekly plan and routines into view
+  const scroll = useRef<ScrollViewInstance | null>(null);
+  useEffect(() => {
+    const go = (target: string | null) => { if (target?.startsWith('plan:workout')) setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 350); };
+    go(takeCoachFocus());
+    return onCoachFocus(go);
+  }, []);
 
   return (
     <ScrollView
+      ref={scroll}
       style={{ flex: 1, backgroundColor: t.bg }}
       contentInsetAdjustmentBehavior="automatic"
       refreshControl={<RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={t.muted} />}

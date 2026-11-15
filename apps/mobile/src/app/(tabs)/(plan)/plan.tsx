@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LayoutAnimation, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,7 @@ import { squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn, useToast } from '@/components/ui';
 import { Section } from '@/components/list';
+import { onCoachFocus, takeCoachFocus } from '@/lib/coach';
 
 type Tab = 'meals' | 'situations' | 'shop';
 const TABS: [Tab, string][] = [['meals', '식단'], ['situations', '상황별'], ['shop', '장보기']];
@@ -206,11 +207,16 @@ export default function PlanScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const refresh = useRefresh();
+  // 보기 from the coach: a meal or shopping change opens its section (first visit reads the pending target)
+  const tabFor = (target: string | null): Tab | null => (target?.startsWith('plan:meal') ? 'meals' : target === 'plan:shop' ? 'shop' : null);
   const [tab, setTabState] = useState<Tab>(() => {
+    const fromCoach = tabFor(takeCoachFocus());
+    if (fromCoach) return fromCoach;
     const saved = devicePref.get<string>('planTab', 'meals');
     return (TABS.some(([k]) => k === saved) ? saved : 'meals') as Tab;
   });
   const setTab = (x: Tab) => { setTabState(x); devicePref.set('planTab', x); };
+  useEffect(() => onCoachFocus((target) => { const x = tabFor(target); if (x) setTabState(x); }), []);
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: t.bg }}
