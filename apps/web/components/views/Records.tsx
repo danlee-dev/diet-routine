@@ -1,16 +1,17 @@
 'use client';
-import { addDays, bandFor, DOW, md, mdw, parseKey, programDate, sgn, weekGoalText, type WeightPoint } from '@diet/core';
-import { dayRecord, streaks, todayView, weightData } from '@diet/data';
+import { addDays, bandFor, DOW, fmt, md, mdw, parseKey, programDate, sgn, weekGoalText, type WeightPoint } from '@diet/core';
+import { dayRecord, streaks, todayView, weightData, weightInsight } from '@diet/data';
 import { useEnv, usePhone } from '@/lib/hooks';
 import { Icon } from '../Icon';
 import { PageHead, useOverlay } from '../ui';
 import { AccountButton } from '../Settings';
 import { DaySheet, WeightSheet } from '../sheets';
+import { RecapCard, ShareRecapSheet } from '../WeeklyRecap';
 
 /** Signed one-decimal number with a real minus sign. */
 const signed = (x: number) => sgn(x).replace('-', '−');
 
-function Chart({ series, avg, dayIdx, days }: { series: WeightPoint[]; avg: WeightPoint[]; dayIdx: number; days: number }) {
+function Chart({ series, trend, dayIdx, days }: { series: WeightPoint[]; trend: WeightPoint[]; dayIdx: number; days: number }) {
   const env = useEnv();
   const phone = usePhone();
   const W = 600, H = phone ? 300 : 250, pl = phone ? 44 : 34, pr = 10, pt = 14, pb = phone ? 36 : 28, xmax = days - 1;
@@ -29,7 +30,9 @@ function Chart({ series, avg, dayIdx, days }: { series: WeightPoint[]; avg: Weig
   const grid: number[] = [];
   const gridStep = ymax - ymin > 14 ? 4 : 2;
   for (let v = Math.ceil(ymin); v <= ymax; v++) if (v % gridStep === 0) grid.push(v);
-  const r = (phone ? 6 : 3.5) * (series.length > 20 ? 0.75 : 1);
+  // daily weigh-ins small, the smoothed trend large: the line is what to read
+  const r = (phone ? 4.2 : 2.6) * (series.length > 20 ? 0.8 : 1);
+  const lastT = trend[trend.length - 1];
   return (
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${days}일 체중 그래프`}>
       <path className="band" d={band} />
@@ -41,9 +44,9 @@ function Chart({ series, avg, dayIdx, days }: { series: WeightPoint[]; avg: Weig
       ))}
       {ticks.map((i) => <text key={i} className="lb" x={x(i).toFixed(1)} y={H - 6} textAnchor="middle">{md(programDate(env.program, i))}</text>)}
       {dayIdx >= 0 && dayIdx <= xmax && <line className="tl" x1={x(dayIdx).toFixed(1)} x2={x(dayIdx).toFixed(1)} y1={pt} y2={H - pb} />}
-      {avg.length > 1 && <path className="al" d={`M${avg.map((p) => `${x(p.i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' L')}`} />}
-      {series.length > 0 && <path className="wl" d={`M${series.map((p) => `${x(p.i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' L')}`} />}
       {series.map((p) => <circle key={p.i} className="pt" cx={x(p.i).toFixed(1)} cy={y(p.w).toFixed(1)} r={r} />)}
+      {trend.length > 1 && <path className="trl" d={`M${trend.map((p) => `${x(p.i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' L')}`} />}
+      {lastT && <circle className="trd" cx={x(lastT.i).toFixed(1)} cy={y(lastT.w).toFixed(1)} r={phone ? 8 : 4.5} />}
       {!series.length && <text className="em" x={W / 2} y={(H - pb) / 2} textAnchor="middle">아침 체중을 넣으면 선이 그려집니다</text>}
     </svg>
   );
@@ -92,11 +95,35 @@ function Calendar({ dayIdx }: { dayIdx: number }) {
   );
 }
 
+/** Arrival date, real maintenance and the morning's water-weight note, under the chart. */
+function Insights() {
+  const env = useEnv();
+  const w = weightInsight(env);
+  const rows: [string, string][] = [];
+  if (w.arrivalLine) rows.push(['도착 예정', w.arrivalLine]);
+  if (w.maintenance) {
+    const m = w.maintenance;
+    rows.push(['실제 유지 칼로리', `약 ${fmt(m.kcal)}kcal · 지난 ${m.days}일 동안 평균 ${fmt(m.intake)}kcal를 먹고 주 ${Math.abs(m.ratePerWeek).toFixed(1)}kg ${m.ratePerWeek <= 0 ? '줄었습니다' : '늘었습니다'}`]);
+  }
+  if (!w.water && !rows.length) return null;
+  return (
+    <div className="insights">
+      {w.water && (
+        <section className="water-note sq" aria-label={w.water.title}>
+          <h3>{w.water.title}</h3>
+          <p>{w.water.body}</p>
+        </section>
+      )}
+      {rows.length > 0 && <dl className="insight-rows">{rows.map(([k, val]) => <div key={k}><dt>{k}</dt><dd>{val}</dd></div>)}</dl>}
+    </div>
+  );
+}
+
 export function Records() {
   const env = useEnv();
   const { open } = useOverlay();
   const v = todayView(env);
-  const { series, avg, stats } = weightData(env, v.ctx.idx);
+  const { series, trend, stats } = weightData(env, v.ctx.idx);
   const st = streaks(env, v.ctx.idx);
   const P = env.program;
   const start = parseKey(P.startDate);
@@ -122,12 +149,13 @@ export function Records() {
               {stats.projection != null ? ` · ${md(end)} 예상 ${stats.projection.toFixed(1)}kg` : ' · 5일 기록하면 도착 예상이 나옵니다'}
             </p>
           </section>
-          <div className="chart"><Chart series={series} avg={avg} dayIdx={v.ctx.idx} days={P.days} /></div>
-          <div className="legend"><span><i />체중</span><span><i className="a" />7일 평균</span><span><i className="b" />목표 범위</span></div>
+          <div className="chart"><Chart series={series} trend={trend} dayIdx={v.ctx.idx} days={P.days} /></div>
+          <div className="legend"><span><i />추세</span><span><i className="d" />매일 체중</span><span><i className="b" />목표 범위</span></div>
+          <Insights />
           <button type="button" className={`${v.weight != null ? 'btn-ghost' : 'btn-primary'} pill`} style={{ marginTop: 16 }} onClick={() => open(<WeightSheet i={v.ctx.idx} />, { focus: '#wh-kg' })}>
             <Icon name="weight" size="sm" />{v.weight != null ? `오늘 체중 고치기 · ${v.weight.toFixed(1)}kg` : '오늘 아침 체중 기록'}
           </button>
-          <p className="note" style={{ marginTop: 12 }}>하루 숫자는 물과 소금에 따라 1kg씩 오르내립니다. 7일 평균이 목표 범위 안이면 잘 가고 있는 겁니다.</p>
+          <p className="note" style={{ marginTop: 12 }}>하루 숫자는 물과 소금에 따라 1kg씩 오르내립니다. 굵은 추세선이 목표 범위 안이면 잘 가고 있는 겁니다.</p>
         </div>
         <div className="col">
           <dl className="trio">
@@ -135,6 +163,7 @@ export function Records() {
             <div><dt>홈트</dt><dd>{st.workouts}<small>회</small></dd></div>
             <div><dt>남은 기간</dt><dd>{daysLeft}<small>일</small></dd></div>
           </dl>
+          <RecapCard onShare={() => open(<ShareRecapSheet />)} />
           <section>
             <h2 className="section-title">{P.days}일 <span className="muted">{md(start)} ~ {md(end)}</span></h2>
             <Calendar dayIdx={v.ctx.idx} />

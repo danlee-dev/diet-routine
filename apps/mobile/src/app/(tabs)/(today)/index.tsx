@@ -14,6 +14,7 @@ import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Icon } from '@/components/Icon';
 import { Btn, Orb, useToast } from '@/components/ui';
 import { RebalanceCard } from '@/components/RebalanceCard';
+import { SuggestionCards } from '@/components/SuggestionCards';
 
 function useMealActions(v: TodayView) {
   const env = useEnv();
@@ -268,6 +269,7 @@ export default function TodayScreen() {
       <SyncBanner t={t} />
       <FocusCard f={f} v={v} t={t} />
       <RebalanceCard v={v} />
+      <SuggestionCards />
       <QuickLog v={v} t={t} />
       <Reco v={v} t={t} />
       <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600', marginTop: 24, marginBottom: 4 }}>오늘 흐름</Text>

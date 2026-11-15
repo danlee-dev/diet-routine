@@ -2,7 +2,7 @@
 // read beyond the day itself. The math is in @diet/core (insights.ts, reminders.ts); this file only gathers
 // rows, so the phone and the web show the same numbers.
 import {
-  adaptiveTarget, adaptiveText, addDays, adjustedTarget, applyPlanChanges, arrivalText, dayCtx, estimateMaintenance, goalArrival, keyOf,
+  adaptiveTarget, adaptiveText, addDays, adjustedTarget, applyPlanChanges, arrivalText, dayCtx, estimateMaintenance, goalArrival, keptDay, keyOf,
   overshootFor, overshootText, parseKey, plan, recapRange, reminderIdParts, saltyDay, skipPattern, skipPlanChange, skipText, STEPS_SHARE,
   stepsGoal, summary, trendByDate, trendOn, waterNoteText, waterWeightNote, weekGoalText, weeklyRecap, weeklyReportText,
   type Arrival, type DatedWeight, type DayAdjustment, type IntakeDay, type MaintenanceEstimate, type MealKey, type Overshoot,
@@ -223,13 +223,29 @@ export function recapDay(env: Env, key: string): RecapDay {
   };
 }
 
-export function weeklyRecapFor(env: Env, range?: { from: string; to: string }): WeeklyRecap & { nextGoal: string } {
+export type RecapDayState = 'kept' | 'logged' | 'empty' | 'future';
+
+export interface WeeklyRecapView extends WeeklyRecap {
+  nextGoal: string;
+  /** the range is the week in progress */
+  current: boolean;
+  /** one cell per day, Monday first */
+  strip: { key: string; state: RecapDayState }[];
+}
+
+export function weeklyRecapFor(env: Env, range?: { from: string; to: string }): WeeklyRecapView {
   const today = todayKey(env);
   const r = range ?? recapRange(today);
-  const days = Array.from({ length: 7 }, (_, i) => recapDay(env, shift(r.from, i)));
-  const rec = weeklyRecap(days, r, today, datedWeights(env, today));
-  const week = dayCtx(env.program, parseKey(r.to)).week;
-  return { ...rec, nextGoal: weekGoalText(env.program, week + 1) };
+  return cached(env, `recap:${r.from}`, () => {
+    const days = Array.from({ length: 7 }, (_, i) => recapDay(env, shift(r.from, i)));
+    const rec = weeklyRecap(days, r, today, datedWeights(env, today));
+    const week = dayCtx(env.program, parseKey(r.to)).week;
+    const strip = days.map((d) => ({
+      key: d.key,
+      state: (d.key > today ? 'future' : keptDay(d) ? 'kept' : d.complete || d.meals > 0 ? 'logged' : 'empty') as RecapDayState,
+    }));
+    return { ...rec, nextGoal: weekGoalText(env.program, week + 1), current: today <= r.to, strip };
+  });
 }
 
 // ---------------- reminder inputs ----------------

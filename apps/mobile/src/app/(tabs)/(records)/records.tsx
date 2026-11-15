@@ -2,11 +2,12 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native'
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
-import { addDays, bandFor, DOW, md, parseKey, programDate, weekGoalText } from '@diet/core';
-import { dayRecord, streaks, todayView, weightData } from '@diet/data';
+import { addDays, bandFor, DOW, fmt, md, parseKey, programDate, weekGoalText } from '@diet/core';
+import { dayRecord, streaks, todayView, weeklyRecapFor, weightData, weightInsight } from '@diet/data';
 import { useEnv, useRefresh } from '@/lib/hooks';
-import { useTheme, type Theme } from '@/lib/theme';
+import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Btn } from '@/components/ui';
+import { RecapCardBody } from '@/components/WeeklyRecap';
 
 /** One day of the 30-day calendar: a ring that fills with the meals eaten (of 5). Today is a solid disc. */
 function DayRing({ label, pct, today, future, t }: { label: string; pct: number; today: boolean; future: boolean; t: Theme }) {
@@ -28,14 +29,55 @@ function DayRing({ label, pct, today, future, t }: { label: string; pct: number;
   );
 }
 
+/** Arrival date, real maintenance and the morning's water-weight note, under the chart. */
+function Insights({ t }: { t: Theme }) {
+  'use no memo';
+  const env = useEnv();
+  const w = weightInsight(env);
+  const rows: [string, string][] = [];
+  if (w.arrivalLine) rows.push(['도착 예정', w.arrivalLine]);
+  if (w.maintenance) rows.push(['실제 유지 칼로리', `약 ${fmt(w.maintenance.kcal)}kcal · 지난 ${w.maintenance.days}일 동안 평균 ${fmt(w.maintenance.intake)}kcal를 먹고 주 ${Math.abs(w.maintenance.ratePerWeek).toFixed(1)}kg ${w.maintenance.ratePerWeek <= 0 ? '줄었습니다' : '늘었습니다'}`]);
+  if (!w.water && !rows.length) return null;
+  return (
+    <View style={{ gap: 14, marginTop: 18 }}>
+      {w.water && (
+        <View style={[{ padding: 16, borderRadius: R.md, backgroundColor: t.surface, gap: 4 }, squircle]}>
+          <Text style={{ color: t.fg, fontSize: 15.5, fontWeight: '600' }}>{w.water.title}</Text>
+          <Text style={{ color: t.fg2, fontSize: 13.5, lineHeight: 19.5 }}>{w.water.body}</Text>
+        </View>
+      )}
+      {rows.map(([k, val]) => (
+        <View key={k} style={{ gap: 2 }}>
+          <Text style={{ color: t.muted, fontSize: 12.5, fontWeight: '600' }}>{k}</Text>
+          <Text style={{ color: t.fg, fontSize: 14.5, lineHeight: 20 }}>{val}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Recap({ t }: { t: Theme }) {
+  'use no memo';
+  const env = useEnv();
+  const r = weeklyRecapFor(env);
+  return (
+    <View style={[{ marginTop: 32, padding: 20, borderRadius: R.lg, backgroundColor: t.surface, gap: 18 }, squircle]}>
+      <RecapCardBody r={r} C={{ ...t, surface: t.bg }} />
+      <Btn small kind="ghost" icon="arrow-up-right" label="공유 이미지 만들기" style={{ alignSelf: 'flex-start' }} onPress={() => router.push('/sheet/share-recap')} />
+    </View>
+  );
+}
+
 export default function RecordsScreen() {
+  // reads store rows through a stable env; the compiler would cache them
+  'use no memo';
   const env = useEnv();
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const refresh = useRefresh();
   const v = todayView(env);
   const P = env.program;
-  const { series, avg, stats } = weightData(env, v.ctx.idx);
+  const { series, trend, stats } = weightData(env, v.ctx.idx);
   const st = streaks(env, v.ctx.idx);
   const goal = weekGoalText(P, v.ctx.week);
   const TARGET_BAND = bandFor(P);
@@ -84,11 +126,13 @@ export default function RecordsScreen() {
         {grid.map((w) => <SvgText key={`l${w}`} x={pl - 6} y={y(w) + 3.5} fontSize={10} fill={t.muted} textAnchor="end">{w}</SvgText>)}
         {[0, 7, 14, 21, 28].map((i) => <SvgText key={i} x={x(i)} y={H - 5} fontSize={10} fill={t.muted} textAnchor="middle">{md(programDate(P, i))}</SvgText>)}
         {v.ctx.idx >= 0 && v.ctx.idx <= xmax && <Line x1={x(v.ctx.idx)} x2={x(v.ctx.idx)} y1={pt} y2={H - pb} stroke={t.ctrl} strokeDasharray="2 4" />}
-        {avg.length > 1 && <Path d={`M${avg.map((p) => `${x(p.i)},${y(p.w)}`).join(' L')}`} stroke={t.muted} strokeWidth={1.5} strokeDasharray="4 5" fill="none" />}
-        {series.length > 0 && <Path d={`M${series.map((p) => `${x(p.i)},${y(p.w)}`).join(' L')}`} stroke={t.fg} strokeWidth={2.4} fill="none" strokeLinejoin="round" strokeLinecap="round" />}
-        {series.map((p) => <Circle key={p.i} cx={x(p.i)} cy={y(p.w)} r={3.5} fill={t.fg} />)}
+        {/* daily weigh-ins small, the smoothed trend large: the line is what to read */}
+        {series.map((p) => <Circle key={p.i} cx={x(p.i)} cy={y(p.w)} r={2.6} fill={t.muted} />)}
+        {trend.length > 1 && <Path d={`M${trend.map((p) => `${x(p.i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' L')}`} stroke={t.fg} strokeWidth={3} fill="none" strokeLinejoin="round" strokeLinecap="round" />}
+        {trend.length > 0 && <Circle cx={x(trend[trend.length - 1]!.i)} cy={y(trend[trend.length - 1]!.w)} r={4.5} fill={t.fg} />}
       </Svg>
-      <Text style={{ color: t.muted, fontSize: 12, marginTop: 4 }}>회색 띠는 주차별 목표 범위, 점선은 5일 평균입니다.</Text>
+      <Text style={{ color: t.muted, fontSize: 12, marginTop: 4 }}>굵은 선은 추세, 작은 점은 매일 잰 체중, 회색 띠는 목표 범위입니다.</Text>
+      <Insights t={t} />
 
       <Btn
         kind={v.weight != null ? 'ghost' : 'primary'}
@@ -103,6 +147,8 @@ export default function RecordsScreen() {
         {stat(String(st.workouts), '회', '홈트')}
         {stat(String(Math.max(0, P.days - v.ctx.no)), '일', '남은 기간')}
       </View>
+
+      <Recap t={t} />
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 36, marginBottom: 10 }}>
         <Text style={{ color: t.fg, fontSize: 17, fontWeight: '600' }}>30일</Text>

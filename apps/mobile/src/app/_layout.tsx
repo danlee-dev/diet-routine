@@ -79,6 +79,7 @@ export default function RootLayout() {
             <Stack.Screen name="sheet/meal" options={sheet([0.8, 1])} />
             {/* a page sheet: the preview scrolls between a fixed header and a fixed share button */}
             <Stack.Screen name="sheet/share-meals" options={{ presentation: 'modal', headerShown: false }} />
+            <Stack.Screen name="sheet/share-recap" options={{ presentation: 'modal', headerShown: false }} />
             <Stack.Screen name="sheet/routine" options={sheet([0.75, 1])} />
             <Stack.Screen
               name="settings"

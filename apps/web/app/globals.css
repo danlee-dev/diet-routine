@@ -275,6 +275,46 @@ ol.rule-list li::before{counter-increment:r;content:counter(r);position:absolute
 .legend i{display:inline-block;width:16px;height:2px;border-radius:2px;background:var(--fg)}
 .legend i.a{background:none;border-top:2px dashed var(--muted);height:0}
 .legend i.b{height:10px;background:var(--surface-2);border-radius:3px}
+/* trend first: the smoothed line large, daily weigh-ins as small muted dots */
+.chart .pt{fill:var(--muted)}
+.chart .trl{fill:none;stroke:var(--fg);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.chart .trd{fill:var(--fg)}
+@media (max-width:767px){ .chart .trl{stroke-width:5} }
+.legend i{height:3px}
+.legend i.d{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.insights{display:flex;flex-direction:column;gap:14px;margin-top:18px}
+.water-note{padding:16px 18px;border-radius:var(--r-md);background:var(--surface)}
+.water-note h3{font-size:15px;font-weight:600}
+.water-note p{margin-top:4px;font-size:14px;color:var(--fg-2);line-height:1.5}
+.insight-rows{display:flex;flex-direction:column;gap:12px}
+.insight-rows dt{font-size:12.5px;font-weight:600;color:var(--muted)}
+.insight-rows dd{margin-top:2px;font-size:14.5px;line-height:1.5;text-wrap:pretty}
+/* weekly recap */
+.recap{margin-top:28px;padding:22px 20px 20px;border-radius:var(--r-xl);background:var(--surface)}
+.recap-range{font-size:12.5px;font-weight:500;color:var(--muted)}
+.recap-t{font-family:var(--font-display);font-weight:300;font-size:clamp(26px,7vw,32px);letter-spacing:-.03em;line-height:1.15;margin-top:2px}
+.recap-delta{display:flex;align-items:flex-end;flex-wrap:wrap;gap:4px 12px;margin-top:16px}
+.recap-delta .num{font-weight:200;font-size:48px;line-height:1;letter-spacing:-.04em}
+.recap-delta .num small{font-size:16px;font-weight:400;color:var(--muted);margin-left:4px;letter-spacing:0}
+.recap-trend{font-size:13px;color:var(--muted);padding-bottom:5px}
+.recap-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin-top:20px;list-style:none;padding:0}
+.recap-strip li{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);font-weight:500}
+.recap-strip i{display:block;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--ctrl)}
+.recap-strip .is-kept i{background:var(--fg);border-color:var(--fg)}
+.recap-strip .is-logged i{border-color:var(--fg)}
+.recap-strip .is-empty i,.recap-strip .is-future i{opacity:.6}
+.recap-strip .is-future i{border-style:dashed}
+.recap .trio{margin-top:20px}
+.recap-best{margin-top:18px;padding:14px 16px;border-radius:var(--r-md);background:var(--bg)}
+.recap-best .k{font-size:12px;font-weight:600;color:var(--muted)}
+.recap-best .v{margin-top:3px;font-size:15px;font-weight:600}
+.recap-best .s{margin-top:1px;font-size:12.5px;color:var(--fg-2)}
+/* suggestions on Today: change the plan only when accepted */
+.sg-list{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.sg-card{padding:18px 20px;border-radius:var(--r-lg);background:var(--surface)}
+.sg-t{font-size:16.5px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.sg-b{margin-top:5px;font-size:14px;color:var(--fg-2);line-height:1.5;text-wrap:pretty}
+.sg-card .card-acts{margin-top:14px}
 .col > .btn-primary,.col > .btn-ghost{align-self:flex-start}
 
 /* 30 days as progress rings */
