@@ -94,6 +94,33 @@
 .card[data-applied]{background:var(--surface)}
 .card[data-applied] .cardTitle{color:var(--fg-2)}
 
+/* ---------- thread list ---------- */
+.inlineBtn{font:inherit;color:var(--fg);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ctrl)}
+.threads{padding-top:8px}
+.threads ul{display:flex;flex-direction:column;gap:4px;margin:10px 0 0;padding:0;list-style:none}
+.threads button{width:100%;display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:13px 14px 13px 16px;border-radius:var(--r-md);text-align:left;transition:background .2s}
+.threads li:first-child button{background:var(--surface)}
+.threads button[aria-current]{background:var(--surface)}
+.threads button[aria-current] .threadTitle{font-weight:600}
+@media (hover:hover){ .threads button:hover{background:var(--surface-2)} }
+.threadTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;color:var(--fg)}
+.threadWhen{flex:none;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* ---------- trend block (get_trends) ---------- */
+.trend{padding:16px 16px 14px;border-radius:var(--r-lg);background:var(--surface)}
+.trendGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 12px;margin:14px 0 0}
+.trendGrid div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.trendGrid b{font-size:24px;font-weight:400;letter-spacing:-.03em;line-height:1.1;color:var(--fg);font-variant-numeric:tabular-nums}
+.trendGrid b small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--muted);margin-left:2px}
+.trendGrid span{font-size:12.5px;line-height:1.4;color:var(--muted)}
+.trendWeight{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;margin-top:18px}
+.trendWeight svg{display:block;width:100%;height:auto;overflow:visible}
+.trendWeight p{font-size:13.5px;line-height:1.45;color:var(--fg-2)}
+.trendWeight p b{font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}
+.spLine{fill:none;stroke:var(--fg);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.spDot{fill:var(--surface);stroke:var(--muted);stroke-width:1.4;vector-effect:non-scaling-stroke}
+.spBase{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+
 /* ---------- sources ---------- */
 .sources ul{display:flex;flex-direction:column;gap:6px;margin:6px 0 0;padding:0;list-style:none}
 .sources li{display:flex;flex-direction:column;font-size:13.5px;line-height:1.4}

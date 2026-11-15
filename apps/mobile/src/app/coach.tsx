@@ -1,30 +1,44 @@
 // AI coach chat (a tab, or a modal). Same events and change cards as the web panel; text and up to three photos.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActionSheetIOS, AppState, Image, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
 import Animated, { FadeInDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fmt } from '@diet/core';
 import { coachSnapshot } from '@diet/data';
-import { suggestedPrompts, turnSeconds, type AssistantTurn, type CoachCard, type CoachStep, type TurnPart } from '@diet/core/coach';
+import { suggestedPrompts, turnSeconds, type AssistantTurn, type ChatThreadRow, type CoachCard, type CoachStep, type TurnPart } from '@diet/core/coach';
 import { useEnv } from '@/lib/hooks';
-import { emitCoachFocus, useCoachChat } from '@/lib/coach';
+import { emitCoachFocus, takePendingCoach, useCoachChat } from '@/lib/coach';
+import { TrendCard } from '@/components/TrendCard';
 import { pickPhotos, preparePasted, type CoachPhoto } from '@/lib/photo';
 import * as Clipboard from 'expo-clipboard';
 import { R, squircle, useTheme, type Theme } from '@/lib/theme';
 import { Btn } from '@/components/ui';
 
 const KIND: Record<CoachCard['kind'], string> = {
-  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동', shop: '장보기',
+  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동', shop: '장보기', event: '약속',
 };
+
+/** "14:05" today, "어제", otherwise "11월 9일". */
+function whenText(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  if (diff === 0) return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (diff === 1) return '어제';
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
 const rise = FadeInDown.duration(300).withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] });
 const signed = (n: number, unit: string) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(Math.round(n)))}${unit}`;
 
 /** The chat. `embedded` in the 코치 tab (no close button); a modal from elsewhere. */
 export function CoachView({ embedded = false }: { embedded?: boolean }) {
+  'use no memo'; // header totals and applied cards read the store through a stable env
   const env = useEnv();
   const t = useTheme();
   const insets = useSafeAreaInsets();
@@ -38,9 +52,19 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
   const win = useWindowDimensions();
   const scroll = useRef<ScrollViewInstance>(null);
   const stick = useRef(true);
+  const [listOpen, setListOpen] = useState(false);
+
+  // gaining focus picks up the conversation as saved (it may have continued on the desktop), or the one the
+  // today screen's "코치가 바꿈" asked for
+  const { refresh } = chat;
+  useFocusEffect(useCallback(() => {
+    if (takePendingCoach()) { setListOpen(false); stick.current = true; } else refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []));
 
   const snap = coachSnapshot(env);
-  const applied = new Set(chat.turns.flatMap((x) => (x.role === 'assistant' ? x.parts : [])).filter((p) => p.kind === 'card' && p.state === 'applied').map((p) => (p.kind === 'card' ? p.card.id : '')));
+  // applied here or on another device (the card's rows are in the store)
+  const applied = new Set(chat.turns.flatMap((x) => (x.role === 'assistant' ? x.parts : [])).flatMap((p) => (p.kind === 'card' && chat.isApplied(p.card, p.state) ? [p.card.id] : [])));
   const next = snap.meals.find((m) => m.state === 'pending');
   const prompts = suggestedPrompts(next ? { key: next.key, name: next.name } : undefined, Number(snap.now.time.slice(0, 2)));
 
@@ -117,8 +141,13 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
           </Text>
           <Text style={{ color: t.fg, fontSize: 30, fontWeight: '300', letterSpacing: -0.8, marginTop: 2 }}>코치</Text>
         </View>
-        {chat.turns.length > 0 && (
-          <Pressable accessibilityRole="button" onPress={chat.reset} style={({ pressed }) => ({ height: 36, paddingHorizontal: 12, justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
+        {(listOpen || chat.threads.length > 0) && (
+          <Pressable accessibilityRole="button" onPress={() => setListOpen((x) => !x)} style={({ pressed }) => ({ height: 36, paddingHorizontal: 10, justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
+            <Text style={{ color: t.fg2, fontSize: 14.5, fontWeight: '600' }}>{listOpen ? '돌아가기' : '대화 목록'}</Text>
+          </Pressable>
+        )}
+        {!listOpen && chat.turns.length > 0 && (
+          <Pressable accessibilityRole="button" onPress={chat.reset} style={({ pressed }) => ({ height: 36, paddingHorizontal: 10, justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
             <Text style={{ color: t.fg2, fontSize: 14.5, fontWeight: '600' }}>새 대화</Text>
           </Pressable>
         )}
@@ -137,10 +166,18 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
         scrollEventThrottle={64}
         onContentSizeChange={() => { if (stick.current) scroll.current?.scrollToEnd({ animated: true }); }}
       >
-        {chat.turns.length === 0 ? (
+        {listOpen ? (
+          <ThreadList t={t} threads={chat.threads} current={chat.threadId} onPick={(id) => { setListOpen(false); stick.current = true; chat.openThread(id); }} onNew={() => { setListOpen(false); chat.reset(); }} />
+        ) : chat.turns.length === 0 ? (
           <View style={{ paddingTop: 18 }}>
             <Text style={{ color: t.fg, fontSize: 27, fontWeight: '500', letterSpacing: -0.9, lineHeight: 33 }}>먹은 것도, 식단표도{'\n'}말로 바꿉니다</Text>
             <Text style={{ color: t.muted, fontSize: 14, lineHeight: 21, marginTop: 10 }}>바뀌는 내용은 카드로 보여드리고, 적용을 눌러야 저장됩니다.</Text>
+            {chat.load === 'loading' && <Text style={{ color: t.muted, fontSize: 13, marginTop: 12 }}>이전 대화를 불러오는 중입니다</Text>}
+            {chat.load === 'error' && (
+              <Pressable onPress={chat.refresh} style={({ pressed }) => ({ marginTop: 12, opacity: pressed ? 0.5 : 1 })}>
+                <Text style={{ color: t.muted, fontSize: 13 }}>이전 대화를 불러오지 못했습니다. <Text style={{ color: t.fg, textDecorationLine: 'underline' }}>다시 시도</Text></Text>
+              </Pressable>
+            )}
             <View style={{ gap: 6, marginTop: 24 }}>
               {prompts.map((p) => (
                 <Pressable key={p} onPress={() => submit(p)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingLeft: 16, paddingRight: 14, borderRadius: R.md, ...squircle, backgroundColor: pressed ? t.surface2 : t.surface })}>
@@ -157,6 +194,7 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
                 {turn.images.map((uri) => <Image key={uri} source={{ uri }} style={{ width: 96, height: 96, borderRadius: 16 }} />)}
               </View>
             )}
+            {!turn.images.length && !!turn.sentImages && <Text style={{ color: t.muted, fontSize: 13 }}>사진 {turn.sentImages}장</Text>}
             {!!turn.text && (
               <View style={{ maxWidth: '86%', paddingHorizontal: 15, paddingVertical: 10, borderRadius: R.lg, ...squircle, backgroundColor: t.fg }}>
                 <Text style={{ color: t.onFg, fontSize: 15.5, lineHeight: 22 }}>{turn.text}</Text>
@@ -165,7 +203,7 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
           </View>
         ) : (
           <View key={turn.id} style={{ gap: 12 }}>
-            <Reply t={t} turn={turn} applied={applied} onApply={(c) => chat.apply(turn.id, c)} onUndo={(id) => chat.undo(turn.id, id)} onView={view} onRetry={chat.retry} />
+            <Reply t={t} turn={turn} applied={applied} canUndo={chat.canUndo} onApply={(c) => chat.apply(turn.id, c)} onUndo={(c) => chat.undo(turn.id, c)} onView={view} onRetry={chat.retry} />
           </View>
         ))}
       </ScrollView>
@@ -227,13 +265,29 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-function Reply({ t, turn, applied, onApply, onUndo, onView, onRetry }: {
-  t: Theme; turn: AssistantTurn; applied: Set<string>; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void; onRetry: () => void;
+function ThreadList({ t, threads, current, onPick, onNew }: { t: Theme; threads: ChatThreadRow[]; current: string | null; onPick: (id: string) => void; onNew: () => void }) {
+  const row = (key: string, title: string, when: string | null, on: () => void, strong: boolean) => (
+    <Pressable key={key} accessibilityRole="button" onPress={on} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'baseline', gap: 12, paddingVertical: 14, paddingLeft: 16, paddingRight: 14, borderRadius: R.md, ...squircle, backgroundColor: pressed ? t.surface2 : strong ? t.surface : 'transparent' })}>
+      <Text numberOfLines={1} style={{ flex: 1, color: t.fg, fontSize: 15.5, fontWeight: strong ? '600' : '400' }}>{title}</Text>
+      {when && <Text style={{ color: t.muted, fontSize: 12.5, fontVariant: ['tabular-nums'] }}>{when}</Text>}
+    </Pressable>
+  );
+  return (
+    <View style={{ paddingTop: 6, gap: 4 }}>
+      <Text style={{ color: t.muted, fontSize: 12, fontWeight: '600', marginBottom: 6 }}>최근 대화 · 데스크톱과 같이 보입니다</Text>
+      {row('new', '새 대화 시작', null, onNew, true)}
+      {threads.map((x) => row(x.id, x.title?.trim() || '제목 없는 대화', whenText(x.updated_at), () => onPick(x.id), x.id === current))}
+    </View>
+  );
+}
+
+function Reply({ t, turn, applied, canUndo, onApply, onUndo, onView, onRetry }: {
+  t: Theme; turn: AssistantTurn; applied: Set<string>; canUndo: (c: CoachCard) => boolean; onApply: (c: CoachCard) => string | null; onUndo: (c: CoachCard) => void; onView: (target: string) => void; onRetry: () => void;
 }) {
   const live = turn.status === 'streaming';
   return (
     <>
-      {turn.parts.map((p, i) => <Part key={i} t={t} part={p} live={live} turn={turn} applied={applied} onApply={onApply} onUndo={onUndo} onView={onView} />)}
+      {turn.parts.map((p, i) => <Part key={i} t={t} part={p} live={live} turn={turn} applied={applied} canUndo={canUndo} onApply={onApply} onUndo={onUndo} onView={onView} />)}
       {live && turn.parts.length === 0 && <Steps t={t} steps={[{ id: 'wait', label: '연결하는 중', state: 'running', kind: 'context' }]} live />}
       {turn.status === 'stopped' && <Text style={{ color: t.muted, fontSize: 13 }}>멈췄습니다</Text>}
       {turn.error && (
@@ -248,13 +302,14 @@ function Reply({ t, turn, applied, onApply, onUndo, onView, onRetry }: {
   );
 }
 
-function Part({ t, part, live, turn, applied, onApply, onUndo, onView }: {
-  t: Theme; part: TurnPart; live: boolean; turn: AssistantTurn; applied: Set<string>; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
+function Part({ t, part, live, turn, applied, canUndo, onApply, onUndo, onView }: {
+  t: Theme; part: TurnPart; live: boolean; turn: AssistantTurn; applied: Set<string>; canUndo: (c: CoachCard) => boolean; onApply: (c: CoachCard) => string | null; onUndo: (c: CoachCard) => void; onView: (target: string) => void;
 }) {
   switch (part.kind) {
     case 'steps': return <Steps t={t} steps={part.steps} live={live} seconds={live ? undefined : turnSeconds(turn)} />;
     case 'text': return <Prose t={t} text={part.text} />;
-    case 'card': return <Card t={t} card={part.card} state={part.state} blocked={(part.card.dependsOn ?? []).some((id) => !applied.has(id))} onApply={onApply} onUndo={onUndo} onView={onView} />;
+    case 'card': return <Card t={t} card={part.card} applied={applied.has(part.card.id)} undoable={canUndo(part.card)} blocked={(part.card.dependsOn ?? []).some((id) => !applied.has(id))} onApply={onApply} onUndo={onUndo} onView={onView} />;
+    case 'block': return <TrendCard block={part.block} />;
     case 'sources': return (
       <View style={{ gap: 6 }}>
         <Text style={{ color: t.muted, fontSize: 12, fontWeight: '600' }}>출처</Text>
@@ -323,11 +378,10 @@ function Prose({ t, text }: { t: Theme; text: string }) {
   return <View style={{ gap: 10 }}>{out}</View>;
 }
 
-function Card({ t, card, state, blocked, onApply, onUndo, onView }: {
-  t: Theme; card: CoachCard; state: 'idle' | 'applied' | 'undone'; blocked: boolean; onApply: (c: CoachCard) => string | null; onUndo: (id: string) => void; onView: (target: string) => void;
+function Card({ t, card, applied, undoable, blocked, onApply, onUndo, onView }: {
+  t: Theme; card: CoachCard; applied: boolean; undoable: boolean; blocked: boolean; onApply: (c: CoachCard) => string | null; onUndo: (c: CoachCard) => void; onView: (target: string) => void;
 }) {
   const [err, setErr] = useState<string | null>(null);
-  const applied = state === 'applied';
   const showTotals = card.kind === 'rebalance' || card.kind === 'skip_meal' || card.kind === 'day_adjustment';
   const changed = card.delta.kcal !== 0 || card.delta.protein !== 0;
   return (
@@ -369,7 +423,7 @@ function Card({ t, card, state, blocked, onApply, onUndo, onView }: {
               <SymbolView name="checkmark" size={13} tintColor={t.fg} weight="bold" />
               <Text style={{ color: t.fg, fontSize: 14, fontWeight: '600' }}>적용했습니다</Text>
             </View>
-            <Btn small kind="ghost" icon="rotate-ccw" label="되돌리기" onPress={() => onUndo(card.id)} />
+            {undoable && <Btn small kind="ghost" icon="rotate-ccw" label="되돌리기" onPress={() => onUndo(card)} />}
           </>
         ) : (
           <Btn small label="적용" style={{ paddingHorizontal: 22, opacity: blocked ? 0.35 : 1 }} onPress={() => {

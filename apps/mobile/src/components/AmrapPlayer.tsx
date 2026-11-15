@@ -6,12 +6,14 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Haptics from 'expo-haptics';
-import { pad, type RoutineKey } from '@diet/core';
+import { cueAmrapDone, cueAmrapMark, cueAmrapStart, cueCountdown, cueLap, pad, type RoutineKey } from '@diet/core';
 import { completeWorkout, todayView, toggleMeal, workoutOn } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { R, squircle, useTheme } from '@/lib/theme';
 import { Btn, useToast } from './ui';
 import { Icon } from './Icon';
+import { VoiceToggle } from './VoiceToggle';
+import { sayWorkout, stopWorkoutVoice, useWorkoutVoice } from '@/lib/workoutVoice';
 
 type Phase = 'ready' | 'go' | 'paused' | 'done';
 const mmss = (s: number) => `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
@@ -35,11 +37,18 @@ export function AmrapPlayer({ routine, minutes }: { routine: RoutineKey; minutes
   // last time's rounds for this routine, shown as the number to beat
   const [best] = useState(() => workoutOn(env, v.ctx.key)?.rounds ?? null);
 
+  const voice = useWorkoutVoice();
+
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
-  useEffect(() => stop, []);
+  useEffect(() => () => { stop(); stopWorkoutVoice(); }, []);
+  // minute marks (every 5, then each of the last 3, 30 s) and 3-2-1 while the clock runs
+  useEffect(() => {
+    if (phase === 'go') sayWorkout(cueAmrapMark(left, total) ?? cueCountdown(left), true);
+  }, [phase, left, total]);
 
   const finish = () => {
     stop();
+    sayWorkout(cueAmrapDone(roundsRef.current), true);
     setPhase('done');
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     completeWorkout(env, v.ctx.key, routine, { rounds: roundsRef.current, startedAt: started.current ?? new Date(), endedAt: new Date() });
@@ -60,6 +69,7 @@ export function AmrapPlayer({ routine, minutes }: { routine: RoutineKey; minutes
   const lap = () => {
     roundsRef.current += 1;
     setRounds(roundsRef.current);
+    sayWorkout(cueLap(roundsRef.current), true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
   const elapsed = total - left;
@@ -68,8 +78,9 @@ export function AmrapPlayer({ routine, minutes }: { routine: RoutineKey; minutes
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16, paddingHorizontal: 20 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ color: t.fg, fontWeight: '700', fontSize: 15 }}>{r.name} · {minutes}분 동안 반복</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <Text style={{ flex: 1, color: t.fg, fontWeight: '700', fontSize: 15 }}>{r.name} · {minutes}분 동안 반복</Text>
+        <VoiceToggle on={voice.on} onToggle={voice.toggle} />
         <Pressable accessibilityLabel="닫기" onPress={() => { if (phase === 'go' || phase === 'paused') finish(); router.back(); }} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: t.surface, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="x" size={15} color={t.fg} weight="semibold" />
         </Pressable>
@@ -108,7 +119,7 @@ export function AmrapPlayer({ routine, minutes }: { routine: RoutineKey; minutes
       </View>
 
       <View style={{ gap: 10 }}>
-        {phase === 'ready' && <Btn icon="play" label={`${minutes}분 시작`} style={{ height: 56 }} onPress={() => { started.current = new Date(); go(total); }} />}
+        {phase === 'ready' && <Btn icon="play" label={`${minutes}분 시작`} style={{ height: 56 }} onPress={() => { started.current = new Date(); sayWorkout(cueAmrapStart(minutes, r.items)); go(total); }} />}
         {phase === 'go' && (
           <>
             <Btn icon="check" label="한 바퀴 끝" style={{ height: 64 }} onPress={lap} />

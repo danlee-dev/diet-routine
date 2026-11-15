@@ -1,9 +1,13 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { amrapOf, pad, repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
+import {
+  amrapOf, cueAmrapDone, cueAmrapMark, cueAmrapStart, cueCountdown, cueDone, cueHoldEnd, cueHoldStart, cueLap, cueMove, cueRest, cueRoundGo,
+  pad, repMultiplier, workoutRounds, type RoutineKey,
+} from '@diet/core';
 import { completeWorkout, todayView, toggleMeal } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { devicePref } from '@/lib/client';
+import { speak, stopSpeaking, voiceSupported } from '@/lib/voice';
 import { Icon } from './Icon';
 import { useOverlay } from './ui';
 
@@ -33,6 +37,11 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
   const [left, setLeft] = useState(0);
   const [total, setTotal] = useState(0);
   const [sound, setSound] = useState(() => devicePref.get('sound', true));
+  // spoken cues: the move and reps, 3-2-1 for holds and rests, minute marks of a time-boxed workout
+  const [voice, setVoice] = useState(() => devicePref.get('workout.voice', true));
+  const voiceRef = useRef(voice && open);
+  useEffect(() => { voiceRef.current = voice && open; }, [voice, open]);
+  const say = useCallback((text: string | null, interrupt = false) => { if (text && voiceRef.current) speak(text, interrupt); }, []);
   const [rounds] = useState(() => (v.session === 'light' ? 3 : workoutRounds(v.ctx.week)));
   const endRef = useRef(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -101,21 +110,44 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
     };
   }, [open]);
 
+  // a new move (fixed rounds): name and reps, the round on its first move
+  useEffect(() => {
+    if (!open || min || phase !== 'work') return;
+    say(cueMove(cur, { idx, total: items.length, round, rounds }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, min, phase, idx, round]);
+  // last three seconds of a hold or a rest
+  useEffect(() => {
+    if (!open || min || (phase !== 'hold' && phase !== 'rest')) return;
+    say(cueCountdown(left), true);
+  }, [open, min, phase, left, say]);
+  // minute marks while a time-boxed workout runs
+  useEffect(() => {
+    if (!open || !min || aPhase !== 'go') return;
+    say(cueAmrapMark(left, min * 60) ?? cueCountdown(left), true);
+  }, [open, min, aPhase, left, say]);
+  useEffect(() => () => stopSpeaking(), []);
+  useEffect(() => { if (!open) stopSpeaking(); }, [open]);
+
   const next = () => {
     stop();
+    if (phase === 'hold') say(cueHoldEnd);
     if (idx < items.length - 1) { setIdx(idx + 1); setPhase('work'); }
     else if (round < rounds) {
       setPhase('rest');
-      run(60, () => { setRound((r) => r + 1); setIdx(0); setPhase('work'); beep(); });
+      say(cueRest(60, items[0]));
+      run(60, () => { say(cueRoundGo); setRound((r) => r + 1); setIdx(0); setPhase('work'); beep(); });
     } else {
       setPhase('done');
       completeWorkout(env, v.ctx.key, key, { rounds, startedAt: startedAt.current ?? new Date(), endedAt: new Date() });
+      say(cueDone(rounds));
       beep();
     }
   };
 
   const finishAmrap = () => {
     stop();
+    say(cueAmrapDone(lapsRef.current), true);
     setAPhase('done');
     completeWorkout(env, v.ctx.key, key, { rounds: lapsRef.current, startedAt: startedAt.current ?? new Date(), endedAt: new Date() });
     beep();
@@ -147,9 +179,9 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
     } else {
       body = <><p className={`wo-clock num${aPhase === 'paused' ? ' is-paused' : ''}`}>{mmss(clock)}</p>{list}{aPhase !== 'ready' && <p className="wo-n">{laps}<small>바퀴</small></p>}</>;
       foot = aPhase === 'ready'
-        ? <button type="button" className="btn-primary pill" onClick={() => { startedAt.current = new Date(); setAPhase('go'); run(min * 60, finishAmrap); }}><Icon name="play" />{min}분 시작</button>
+        ? <button type="button" className="btn-primary pill" onClick={() => { startedAt.current = new Date(); say(cueAmrapStart(min, rdef.items)); setAPhase('go'); run(min * 60, finishAmrap); }}><Icon name="play" />{min}분 시작</button>
         : aPhase === 'go'
-          ? <><button type="button" className="btn-primary pill wo-lap" onClick={() => { lapsRef.current += 1; setLaps(lapsRef.current); try { navigator.vibrate?.(60); } catch { /* not supported */ } }}><Icon name="check" />한 바퀴 끝</button>
+          ? <><button type="button" className="btn-primary pill wo-lap" onClick={() => { lapsRef.current += 1; setLaps(lapsRef.current); say(cueLap(lapsRef.current), true); try { navigator.vibrate?.(60); } catch { /* not supported */ } }}><Icon name="check" />한 바퀴 끝</button>
               <div className="row"><button type="button" className="btn-ghost pill" onClick={() => { stop(); setAPhase('paused'); }}>잠깐 멈춤</button><button type="button" className="btn-ghost pill" onClick={finishAmrap}>여기서 끝내기</button></div></>
           : <div className="row"><button type="button" className="btn-primary pill" style={{ width: 'auto', height: 44, fontSize: 15 }} onClick={() => { setAPhase('go'); run(left, finishAmrap); }}><Icon name="play" />계속</button><button type="button" className="btn-ghost pill" onClick={finishAmrap}>여기서 끝내기</button></div>;
     }
@@ -165,7 +197,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
     );
     foot = cur.unit === '초' ? (
       <>
-        <button type="button" className="btn-primary pill" onClick={() => { setPhase('hold'); run(cur.n, () => { beep(); next(); }); }}><Icon name="timer" />{cur.n}초 타이머 시작</button>
+        <button type="button" className="btn-primary pill" onClick={() => { setPhase('hold'); say(cueHoldStart(cur), true); run(cur.n, () => { beep(); next(); }); }}><Icon name="timer" />{cur.n}초 타이머 시작</button>
         <div className="row"><button type="button" className="btn-ghost pill" onClick={next}>타이머 없이 완료</button>{idx > 0 && <button type="button" className="btn-ghost pill" onClick={() => { stop(); setIdx(idx - 1); setPhase('work'); }}>이전</button>}</div>
       </>
     ) : (
@@ -182,7 +214,7 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
     foot = (
       <div className="row">
         <button type="button" className="btn-ghost pill" onClick={() => { endRef.current += 15000; setLeft((l) => l + 15); setTotal((t) => t + 15); }}>+15초</button>
-        <button type="button" className="btn-primary pill" style={{ width: 'auto', height: 44, fontSize: 15 }} onClick={() => { stop(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }}><Icon name="skip-forward" />바로 시작</button>
+        <button type="button" className="btn-primary pill" style={{ width: 'auto', height: 44, fontSize: 15 }} onClick={() => { stop(); stopSpeaking(); setRound((r) => r + 1); setIdx(0); setPhase('work'); }}><Icon name="skip-forward" />바로 시작</button>
       </div>
     );
   } else {
@@ -202,6 +234,11 @@ export function WorkoutPlayer({ routine, onClose }: { routine: RoutineKey | null
           <div className="wo-head">
             <span className="t">{rdef.name} · {min ? `${min}분 동안 반복` : phase === 'done' ? '완료' : `라운드 ${round}/${rounds}`}</span>
             <div className="acts">
+              {voiceSupported() && (
+                <button type="button" className="wo-voice" aria-pressed={voice} aria-label={voice ? '음성 안내 끄기' : '음성 안내 켜기'} onClick={() => { const x = !voice; setVoice(x); devicePref.set('workout.voice', x); if (!x) stopSpeaking(); }}>
+                  음성 {voice ? '켬' : '끔'}
+                </button>
+              )}
               <button type="button" className="icon-btn" aria-label={sound ? '소리 끄기' : '소리 켜기'} onClick={() => { const s = !sound; setSound(s); devicePref.set('sound', s); }}><Icon name={sound ? 'volume-2' : 'volume-x'} /></button>
               <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="x" /></button>
             </div>

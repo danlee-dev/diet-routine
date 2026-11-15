@@ -52,6 +52,8 @@ export async function POST(req: Request): Promise<Response> {
   // record the user turn (thread + message, through RLS); this is also what the hourly/daily quota counts
   const db = auth.db;
   await db.from('chat_threads').upsert({ id: input.threadId, title: input.message.slice(0, 40) || '사진' }, { onConflict: 'id', ignoreDuplicates: true });
+  // the thread list on every device is ordered by the last turn
+  await db.from('chat_threads').update({ updated_at: new Date().toISOString() }).eq('id', input.threadId);
   await db.from('chat_messages').insert({ thread_id: input.threadId, role: 'user', content: { text: input.message, images: input.images.length } });
 
   const assistantId = crypto.randomUUID();
@@ -69,8 +71,8 @@ export async function POST(req: Request): Promise<Response> {
         const result = await runCoachTurn(input, send, upstream.signal, assistantId);
         send({ type: 'done', stopReason: result.stopReason });
         if (usage?.ok) await recordTokens(usage.id, result.usage.input + result.usage.cacheRead + result.usage.cacheWrite, result.usage.output);
-        if (result.text || result.cards.length) {
-          await db.from('chat_messages').insert({ id: assistantId, thread_id: input.threadId, role: 'assistant', content: { text: result.text, cards: result.cards, usage: result.usage } });
+        if (result.text || result.cards.length || result.blocks.length) {
+          await db.from('chat_messages').insert({ id: assistantId, thread_id: input.threadId, role: 'assistant', content: { text: result.text, cards: result.cards, blocks: result.blocks, parts: result.parts, usage: result.usage } });
         }
       } catch (err) {
         if (upstream.signal.aborted) { /* client went away: stop quietly */ }

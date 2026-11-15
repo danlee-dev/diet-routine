@@ -2,21 +2,34 @@
 // AI coach panel: right-side panel on tablet/desktop, full-screen sheet on phones.
 // Steps stream in as lines, the answer streams as text, change cards are applied only on 적용.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowUp, ArrowUpRight, Check, ChevronDown, ImagePlus, RotateCcw, Square, X } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ImagePlus, RotateCcw, Square, X } from 'lucide-react';
 import { fmt } from '@diet/core';
 import { coachSnapshot } from '@diet/data';
-import { suggestedPrompts, turnSeconds, type AssistantTurn, type CoachCard, type CoachStep, type TurnPart } from '@diet/core/coach';
+import { suggestedPrompts, turnSeconds, type AssistantTurn, type ChatThreadRow, type CoachCard, type CoachStep, type TurnPart } from '@diet/core/coach';
 import { useEnv } from '@/lib/hooks';
 import { useOverlay } from '../ui';
 import { SettingsSheet } from '../Settings';
 import { Icon } from '../Icon';
 import { prepareImage, type PreparedImage } from './image';
 import { useCoachChat } from './useCoachChat';
+import { TrendCard } from './TrendCard';
 import s from './coach.module.css';
 
 const KIND: Record<CoachCard['kind'], string> = {
-  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동', shop: '장보기',
+  log_food: '기록', plan_change: '식단표', day_adjustment: '오늘만', rebalance: '다시 맞추기', skip_meal: '건너뛰기', workout: '운동', shop: '장보기', event: '약속',
 };
+
+/** "14:05" today, "어제", otherwise "11월 9일". */
+function whenText(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  if (diff === 0) return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (diff === 1) return '어제';
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
 const SLOT_NAME: Record<string, string> = { breakfast: '아침', lunch: '점심', snack: '간식', post: '운동 후', dinner: '저녁' };
 const ICON = { size: 18, strokeWidth: 1.9, 'aria-hidden': true } as const;
 const hostOf = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } };
@@ -68,6 +81,7 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
   const [images, setImages] = useState<PreparedImage[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -77,15 +91,26 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
   const version = env.store.getVersion();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const snap = useMemo(() => coachSnapshot(env), [env, version]);
-  const applied = new Set(chat.turns.flatMap((t) => (t.role === 'assistant' ? t.parts : [])).filter((p) => p.kind === 'card' && p.state === 'applied').map((p) => (p.kind === 'card' ? p.card.id : '')));
+  // applied here or on another device (the card's rows are in the store)
+  const applied = new Set(chat.turns.flatMap((t) => (t.role === 'assistant' ? t.parts : [])).flatMap((p) => (p.kind === 'card' && chat.isApplied(p.card, p.state) ? [p.card.id] : [])));
   const next = snap.meals.find((m) => m.state === 'pending');
   const prompts = suggestedPrompts(next ? { key: next.key, name: next.name } : undefined, Number(snap.now.time.slice(0, 2)));
 
-  // other entry points (e.g. a phone layout button) open the panel with window.dispatchEvent(new Event('coach:open'))
+  // other entry points open the panel with window.dispatchEvent(new Event('coach:open')); the today screen's
+  // "코치가 바꿈" tag passes { detail: { messageId } } to open the conversation that made the change
+  const { openByMessage, refresh } = chat;
   useEffect(() => {
-    window.addEventListener('coach:open', onOpen);
-    return () => window.removeEventListener('coach:open', onOpen);
-  }, [onOpen]);
+    const on = (e: Event) => {
+      onOpen();
+      const detail = (e as CustomEvent<{ messageId?: string | null } | undefined>).detail;
+      if (detail && 'messageId' in detail) { setListOpen(false); openByMessage(detail.messageId ?? null); }
+    };
+    window.addEventListener('coach:open', on);
+    return () => window.removeEventListener('coach:open', on);
+  }, [onOpen, openByMessage]);
+
+  // opening the panel picks up the conversation as saved (it may have continued on the phone)
+  useEffect(() => { if (open) refresh(); }, [open, refresh]);
 
   useEffect(() => {
     if (!open) return;
@@ -151,16 +176,23 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
             </p>
           </div>
           <div className={s.headActs}>
-            {chat.turns.length > 0 && <button type="button" className={s.textBtn} onClick={chat.reset}>새 대화</button>}
+            {listOpen
+              ? <button type="button" className={s.textBtn} onClick={() => setListOpen(false)}><ChevronLeft size={16} aria-hidden />돌아가기</button>
+              : chat.threads.length > 0 && <button type="button" className={s.textBtn} onClick={() => setListOpen(true)}>대화 목록</button>}
+            {!listOpen && chat.turns.length > 0 && <button type="button" className={s.textBtn} onClick={chat.reset}>새 대화</button>}
             <button type="button" className="icon-btn" aria-label="코치 닫기" onClick={onClose}><X {...ICON} className="lucide" /></button>
           </div>
         </header>
 
         <div ref={scroller} className={s.scroll} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
-          {chat.turns.length === 0 ? (
+          {listOpen ? (
+            <ThreadList threads={chat.threads} current={chat.threadId} onPick={(id) => { setListOpen(false); stick.current = true; chat.openThread(id); }} onNew={() => { setListOpen(false); chat.reset(); }} />
+          ) : chat.turns.length === 0 ? (
             <div className={s.empty}>
               <p className={s.lead}>먹은 것도, 식단표도<br />말로 바꿉니다</p>
               <p className={s.leadSub}>사진이나 영양성분표를 올려도 됩니다. 바뀌는 내용은 카드로 보여드리고, 적용을 눌러야 저장됩니다.</p>
+              {chat.load === 'loading' && <p className={s.meta} style={{ marginTop: 14 }}>이전 대화를 불러오는 중입니다</p>}
+              {chat.load === 'error' && <p className={s.meta} style={{ marginTop: 14 }}>이전 대화를 불러오지 못했습니다. <button type="button" className={s.inlineBtn} onClick={chat.refresh}>다시 시도</button></p>}
               <ul className={s.prompts}>
                 {prompts.map((p) => (
                   <li key={p}><button type="button" className="sq" onClick={() => submit(p)}><span>{p}</span><ArrowUpRight {...ICON} className="lucide" /></button></li>
@@ -172,11 +204,12 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
               {chat.turns.map((t) => t.role === 'user' ? (
                 <li key={t.id} className={s.user}>
                   {t.images.length > 0 && <div className={s.userImgs}>{t.images.map((src, i) => <img key={i} src={src} alt="" className="sq" />)}</div>}
+                  {!t.images.length && !!t.sentImages && <p className={s.meta}>사진 {t.sentImages}장</p>}
                   {t.text && <p className={`${s.bubble} sq`}>{t.text}</p>}
                 </li>
               ) : (
                 <li key={t.id} className={s.reply}>
-                  <Reply turn={t} applied={applied} onApply={(c) => chat.apply(t.id, c)} onUndo={(id) => chat.undo(t.id, id)} onView={view} onLogin={login} onRetry={chat.retry} />
+                  <Reply turn={t} applied={applied} canUndo={chat.canUndo} onApply={(c) => chat.apply(t.id, c)} onUndo={(c) => chat.undo(t.id, c)} onView={view} onLogin={login} onRetry={chat.retry} />
                 </li>
               ))}
             </ol>
@@ -226,11 +259,31 @@ export function CoachPanel({ open, onOpen, onClose }: { open: boolean; onOpen: (
   );
 }
 
-function Reply({ turn, applied, onApply, onUndo, onView, onLogin, onRetry }: {
+function ThreadList({ threads, current, onPick, onNew }: { threads: ChatThreadRow[]; current: string | null; onPick: (id: string) => void; onNew: () => void }) {
+  return (
+    <div className={s.threads}>
+      <p className={s.eyebrow}>최근 대화 · 폰과 같이 보입니다</p>
+      <ul>
+        <li><button type="button" className="sq" onClick={onNew}><span className={s.threadTitle}>새 대화 시작</span></button></li>
+        {threads.map((t) => (
+          <li key={t.id}>
+            <button type="button" className="sq" aria-current={t.id === current || undefined} onClick={() => onPick(t.id)}>
+              <span className={s.threadTitle}>{t.title?.trim() || '제목 없는 대화'}</span>
+              <span className={s.threadWhen}>{whenText(t.updated_at)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Reply({ turn, applied, canUndo, onApply, onUndo, onView, onLogin, onRetry }: {
   turn: AssistantTurn;
   applied: Set<string>;
+  canUndo: (c: CoachCard) => boolean;
   onApply: (c: CoachCard) => string | null;
-  onUndo: (cardId: string) => void;
+  onUndo: (c: CoachCard) => void;
   onView: (target: string) => void;
   onLogin: () => void;
   onRetry: () => void;
@@ -238,7 +291,7 @@ function Reply({ turn, applied, onApply, onUndo, onView, onLogin, onRetry }: {
   const live = turn.status === 'streaming';
   return (
     <>
-      {turn.parts.map((p, i) => <Part key={i} part={p} live={live} turn={turn} applied={applied} onApply={onApply} onUndo={onUndo} onView={onView} />)}
+      {turn.parts.map((p, i) => <Part key={i} part={p} live={live} turn={turn} applied={applied} canUndo={canUndo} onApply={onApply} onUndo={onUndo} onView={onView} />)}
       {live && turn.parts.length === 0 && <Steps steps={[{ id: 'wait', label: '연결하는 중', state: 'running', kind: 'context' }]} live />}
       {turn.status === 'stopped' && <p className={s.meta}>멈췄습니다</p>}
       {turn.error && (
@@ -253,14 +306,15 @@ function Reply({ turn, applied, onApply, onUndo, onView, onLogin, onRetry }: {
   );
 }
 
-function Part({ part, live, turn, applied, onApply, onUndo, onView }: {
-  part: TurnPart; live: boolean; turn: AssistantTurn; applied: Set<string>;
-  onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (target: string) => void;
+function Part({ part, live, turn, applied, canUndo, onApply, onUndo, onView }: {
+  part: TurnPart; live: boolean; turn: AssistantTurn; applied: Set<string>; canUndo: (c: CoachCard) => boolean;
+  onApply: (c: CoachCard) => string | null; onUndo: (c: CoachCard) => void; onView: (target: string) => void;
 }) {
   switch (part.kind) {
     case 'steps': return <Steps steps={part.steps} live={live} seconds={live ? undefined : turnSeconds(turn)} />;
     case 'text': return <Prose text={part.text} />;
-    case 'card': return <Card card={part.card} state={part.state} blocked={(part.card.dependsOn ?? []).some((id) => !applied.has(id))} onApply={onApply} onUndo={onUndo} onView={onView} />;
+    case 'card': return <Card card={part.card} applied={applied.has(part.card.id)} undoable={canUndo(part.card)} blocked={(part.card.dependsOn ?? []).some((id) => !applied.has(id))} onApply={onApply} onUndo={onUndo} onView={onView} />;
+    case 'block': return <TrendCard block={part.block} />;
     case 'sources': return (
       <div className={s.sources}>
         <p className={s.eyebrow}>출처</p>
@@ -315,12 +369,11 @@ function Prose({ text }: { text: string }) {
 
 const signed = (n: number, unit: string) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(Math.round(n)))}${unit}`;
 
-function Card({ card, state, blocked, onApply, onUndo, onView }: {
-  card: CoachCard; state: 'idle' | 'applied' | 'undone'; blocked: boolean;
-  onApply: (c: CoachCard) => string | null; onUndo: (cardId: string) => void; onView: (target: string) => void;
+function Card({ card, applied, undoable, blocked, onApply, onUndo, onView }: {
+  card: CoachCard; applied: boolean; undoable: boolean; blocked: boolean;
+  onApply: (c: CoachCard) => string | null; onUndo: (c: CoachCard) => void; onView: (target: string) => void;
 }) {
   const [err, setErr] = useState<string | null>(null);
-  const applied = state === 'applied';
   const showTotals = card.kind === 'rebalance' || card.kind === 'skip_meal' || card.kind === 'day_adjustment';
   const changed = card.delta.kcal !== 0 || card.delta.protein !== 0;
   return (
@@ -356,7 +409,7 @@ function Card({ card, state, blocked, onApply, onUndo, onView }: {
         {applied ? (
           <>
             <span className={s.appliedTag}><Check size={15} strokeWidth={2.6} aria-hidden />적용했습니다</span>
-            <button type="button" className="btn-ghost pill" onClick={() => onUndo(card.id)}><RotateCcw size={15} aria-hidden />되돌리기</button>
+            {undoable && <button type="button" className="btn-ghost pill" onClick={() => onUndo(card)}><RotateCcw size={15} aria-hidden />되돌리기</button>}
           </>
         ) : (
           <button type="button" className={`btn-primary pill ${s.applyBtn}`} disabled={blocked} onClick={() => setErr(onApply(card))}>적용</button>

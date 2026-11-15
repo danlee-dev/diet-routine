@@ -6,7 +6,7 @@ import 'server-only';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   COACH_TOOLS, CoachSession, parseToolInput, snapshotForModel, toolStatusLabel,
-  type ChatRequestZ, type CoachCard, type CoachEvent, type CoachToolName,
+  type ChatRequestZ, type CoachBlock, type CoachCard, type CoachEvent, type CoachToolName, type SavedPart,
 } from '@diet/core/coach';
 import type { z } from 'zod';
 import { LIMITS } from './limits';
@@ -52,6 +52,10 @@ function buildMessages(req: Req): Anthropic.Beta.BetaMessageParam[] {
 export interface TurnResult {
   text: string;
   cards: CoachCard[];
+  /** read-only blocks (trend summaries), saved even when this client could not draw them */
+  blocks: CoachBlock[];
+  /** the answer in order (text, cards and blocks by id, sources), so another device rebuilds it as it streamed */
+  parts: SavedPart[];
   stopReason: string;
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; webSearches: number };
 }
@@ -61,8 +65,17 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, me
   const session = new CoachSession(req.snapshot, crypto.randomUUID().slice(0, 8), messageId);
   const messages = buildMessages(req);
   const cards: CoachCard[] = [];
+  const blocks: CoachBlock[] = [];
+  const parts: SavedPart[] = [];
+  // older app builds do not know the block event; they get the same numbers in the answer text only
+  const drawsBlocks = req.features.includes('blocks');
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, webSearches: 0 };
   let text = '';
+  const addText = (delta: string) => {
+    text += delta;
+    const last = parts[parts.length - 1];
+    if (last?.k === 'text') last.text += delta; else parts.push({ k: 'text', text: delta });
+  };
   let stopReason = 'end_turn';
   let notes = 0;
 
@@ -104,20 +117,25 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, me
         const b = ev.content_block;
         blockKind.set(ev.index, b.type);
         // a new text block after earlier text (e.g. after a search or tool call) starts a new paragraph
-        if (b.type === 'text' && text && !text.endsWith('\n')) { text += '\n\n'; emit({ type: 'text', delta: '\n\n' }); }
+        if (b.type === 'text' && text && !text.endsWith('\n')) { addText('\n\n'); emit({ type: 'text', delta: '\n\n' }); }
         if (b.type === 'tool_use') emit({ type: 'status', id: b.id, label: toolStatusLabel(b.name), state: 'running', kind: 'tool' });
         else if (b.type === 'server_tool_use' && b.name === 'web_search') emit({ type: 'status', id: b.id, label: '웹 검색 중', state: 'running', kind: 'search' });
         else if (b.type === 'web_search_tool_result') {
           if (Array.isArray(b.content)) {
             const items = b.content.slice(0, 6).map((r) => ({ title: r.title.slice(0, 140), url: r.url }));
             emit({ type: 'status', id: b.tool_use_id, label: `웹 검색 완료 · 출처 ${b.content.length}개`, state: 'done', kind: 'search' });
-            if (items.length) emit({ type: 'sources', items });
+            if (items.length) {
+              emit({ type: 'sources', items });
+              const prev = parts.find((p): p is Extract<SavedPart, { k: 'sources' }> => p.k === 'sources');
+              if (prev) prev.items = [...prev.items, ...items.filter((x) => !prev.items.some((y) => y.url === x.url))].slice(0, 8);
+              else parts.push({ k: 'sources', items });
+            }
           } else {
             emit({ type: 'status', id: b.tool_use_id, label: '웹 검색을 하지 못했습니다', state: 'error', kind: 'search' });
           }
         }
       } else if (ev.type === 'content_block_delta') {
-        if (ev.delta.type === 'text_delta') { text += ev.delta.text; emit({ type: 'text', delta: ev.delta.text }); }
+        if (ev.delta.type === 'text_delta') { addText(ev.delta.text); emit({ type: 'text', delta: ev.delta.text }); }
         else if (ev.delta.type === 'thinking_delta' && ev.delta.thinking) thinkingText.set(ev.index, (thinkingText.get(ev.index) ?? '') + ev.delta.thinking);
       } else if (ev.type === 'content_block_stop') {
         const kind = blockKind.get(ev.index);
@@ -169,11 +187,17 @@ export async function runCoachTurn(req: Req, emit: Emit, signal: AbortSignal, me
         continue;
       }
       const out = session.run(tu.name as CoachToolName, parsed.data);
-      if (out.card) { cards.push(out.card); emit({ type: 'card', card: out.card }); }
+      if (out.card) { cards.push(out.card); parts.push({ k: 'card', id: out.card.id }); emit({ type: 'card', card: out.card }); }
+      if (out.block) {
+        blocks.push(out.block);
+        parts.push({ k: 'block', id: out.block.id });
+        if (drawsBlocks) emit({ type: 'block', block: out.block });
+      }
       emit({ type: 'status', id: tu.id, label: out.doneLabel, state: out.isError ? 'error' : 'done', kind: 'tool' });
       results.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(out.result), ...(out.isError ? { is_error: true } : {}) });
     }
     messages.push({ role: 'user', content: results });
   }
-  return { text, cards, stopReason, usage };
+  const saved = parts.map((p) => (p.k === 'text' ? { ...p, text: p.text.trim() } : p)).filter((p) => p.k !== 'text' || p.text);
+  return { text, cards, blocks, parts: saved, stopReason, usage };
 }

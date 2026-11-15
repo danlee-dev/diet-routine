@@ -5,9 +5,9 @@ import {
   type MealKey, type RoutineKey,
 } from '@diet/core';
 import {
-  applyRebalance, focusNow, importLegacyData, overCauses, rainSuggestion, rebalanceToday, rebalanceWorthShowing, recommendation, remainingKcal, setWake, setWater,
+  applyRebalance, coachMarks, focusNow, importLegacyData, overCauses, rainSuggestion, rebalanceToday, rebalanceWorthShowing, recommendation, remainingKcal, setWake, setWater,
   skipMeal, swapWalkForWorkout, timeline, todayView, toggleMeal,
-  type Focus, type TimelineItem, type TodayView,
+  type CoachMark, type Focus, type TimelineItem, type TodayView,
 } from '@diet/data';
 import { useAuth, useEnv, useMinuteTick } from '@/lib/hooks';
 import { devicePref, getSupabase, readLegacyLocal } from '@/lib/client';
@@ -200,7 +200,22 @@ function Reco({ v, nav }: { v: TodayView; nav: TodayNav }) {
   );
 }
 
-function TimelineRow({ it, v, nav, openId, setOpenId }: { it: TimelineItem; v: TodayView; nav: TodayNav; openId: string | null; setOpenId: (id: string | null) => void }) {
+/** "코치가 바꿈": opens the coach on the conversation whose card made the change. */
+function CoachTag({ mark }: { mark: CoachMark }) {
+  return (
+    <button
+      type="button"
+      className="coach-tag"
+      title={mark.note ?? undefined}
+      aria-label={`코치가 바꿈${mark.note ? `: ${mark.note}` : ''}. 그 대화 열기`}
+      onClick={() => window.dispatchEvent(new CustomEvent('coach:open', { detail: { messageId: mark.messageId } }))}
+    >
+      코치가 바꿈
+    </button>
+  );
+}
+
+function TimelineRow({ it, v, nav, openId, setOpenId, mark }: { it: TimelineItem; v: TodayView; nav: TodayNav; openId: string | null; setOpenId: (id: string | null) => void; mark?: CoachMark | null }) {
   const { open } = useOverlay();
   const act = useMealActions(v);
   const env = useEnv();
@@ -214,7 +229,7 @@ function TimelineRow({ it, v, nav, openId, setOpenId }: { it: TimelineItem; v: T
     if (it.kind === 'meal') setOpenId(expanded ? null : it.id);
   };
   return (
-    <li className={`tl-item ${it.state} k-${it.kind}`}>
+    <li className={`tl-item ${it.state} k-${it.kind}`} data-slot={it.kind === 'meal' ? it.id : undefined} data-coach-target={it.kind === 'workout' ? 'today:workout' : undefined}>
       <span className="tl-time">{time}</span>
       <span className="tl-node">
         {it.kind === 'meal' && m
@@ -236,6 +251,7 @@ function TimelineRow({ it, v, nav, openId, setOpenId }: { it: TimelineItem; v: T
         <span className="s">{it.sub}</span>
       </button>
       <span className="tl-side">
+        {mark && <CoachTag mark={mark} />}
         {it.kind === 'meal' && m && <span className="kc">{fmt(kcal ?? 0)}<small>kcal</small></span>}
         {it.kind === 'workout' && it.routine && it.state !== 'done' && <button type="button" className="chip-btn" onClick={() => nav.startWorkout(it.routine!)}><Icon name="play" size="sm" />시작</button>}
         {it.kind === 'workout' && it.state === 'done' && <span className="done-tag"><Icon name="check" size="sm" />완료</span>}
@@ -432,6 +448,7 @@ export function Today({ nav }: { nav: TodayNav }) {
   const v = todayView(env);
   const f = focusNow(env, v);
   const items = timeline(env, v);
+  const marks = coachMarks(env, v.ctx.key);
   const [openId, setOpenId] = useState<string | null>(null);
   const sc = SCEN[v.scen];
   return (
@@ -452,7 +469,7 @@ export function Today({ nav }: { nav: TodayNav }) {
           </div>
           <h2 className="section-title">오늘 흐름</h2>
           <ul className="tl">
-            {items.map((it) => <TimelineRow key={it.id} it={it} v={v} nav={nav} openId={openId} setOpenId={setOpenId} />)}
+            {items.map((it) => <TimelineRow key={it.id} it={it} v={v} nav={nav} openId={openId} setOpenId={setOpenId} mark={it.kind === 'meal' ? marks.meals[it.id as MealKey] : it.kind === 'workout' ? marks.workout : null} />)}
           </ul>
         </div>
         <aside className="t-aside only-wide" aria-label="오늘 숫자와 추천">
