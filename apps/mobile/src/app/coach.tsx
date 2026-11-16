@@ -46,7 +46,6 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
   const [draft, setDraft] = useState('');
   const [photos, setPhotos] = useState<CoachPhoto[]>([]);
   // the input grows with its text (up to 120) and drops back to one line when sent; iOS won't shrink it by itself
-  const [inputH, setInputH] = useState(40);
   const [preparing, setPreparing] = useState(false);
   const [height, setHeight] = useState(0);
   const win = useWindowDimensions();
@@ -84,7 +83,6 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
     void chat.send(text, photos);
     setDraft('');
     setPhotos([]);
-    setInputH(40);
   };
   // photos: food, a menu, a nutrition label; up to three per message, analysed together with the text
   const attach = () => {
@@ -240,13 +238,13 @@ export function CoachView({ embedded = false }: { embedded?: boolean }) {
             // iOS keeps the old color on existing text when the theme flips; remount (the draft lives in state)
             key={t.bg}
             value={draft}
-            onChangeText={(x) => { setDraft(x); if (!x) setInputH(40); }}
-            onContentSizeChange={(e) => setInputH(Math.min(120, Math.max(40, Math.ceil(e.nativeEvent.contentSize.height))))}
+            onChangeText={setDraft}
             placeholder={photos.length ? '사진에 대해 한마디 (선택)' : '예: 점심에 김치찌개 먹었어'}
             placeholderTextColor={t.muted}
+            // grows with its text from one line to five, then scrolls; sized by iOS itself, since
+            // onContentSizeChange did not fire on device and left long drafts cut to their first line
             multiline
-            scrollEnabled={inputH >= 120}
-            style={{ flex: 1, height: inputH, paddingTop: 9, paddingBottom: 9, color: t.fg, fontSize: 16, lineHeight: 21 }}
+            style={{ flex: 1, minHeight: 40, maxHeight: 9 + 21 * 5 + 9, paddingTop: 9, paddingBottom: 9, color: t.fg, fontSize: 16, lineHeight: 21 }}
             selectionColor={t.fg}
             accessibilityLabel="코치에게 보낼 말"
           />

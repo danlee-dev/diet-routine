@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { fmt, mdw, parseKey } from '@diet/core';
@@ -142,6 +143,9 @@ export default function SettingsScreen() {
   const { user, ready } = useAuthUser();
   const P = env.program;
   const version = Constants.expoConfig?.version ?? '';
+  // which over-the-air update is running, so a fix can be confirmed on the phone ("업데이트 11월 16일 11:20")
+  const at = Updates.isEmbeddedLaunch ? null : Updates.createdAt;
+  const build = at ? `업데이트 ${at.getMonth() + 1}월 ${at.getDate()}일 ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` : '설치한 그대로';
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: t.bg }}
@@ -178,7 +182,7 @@ export default function SettingsScreen() {
 
       <View style={{ alignItems: 'center', marginTop: 32, gap: 4 }}>
         <Icon name="sun" size={16} color={t.muted} />
-        <Text style={{ color: t.muted, fontSize: 12.5 }}>다루 {version}</Text>
+        <Text style={{ color: t.muted, fontSize: 12.5 }}>다루 {version} · {build}</Text>
       </View>
     </ScrollView>
   );
