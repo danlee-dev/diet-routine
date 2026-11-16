@@ -1,21 +1,24 @@
-// First screen of a fresh install. The splash orb lands in the corner as a low sun, then the headline, one line
-// of what the app does, and two ways in: 시작하기 (onboarding, no account needed) or 이미 계정이 있습니다
-// (Google / email code). After a sign-in it waits for the first pull: a profile arriving moves the user to
+// First screen of a fresh install. The splash orb lands in the corner as a low sun and the splash wordmark
+// becomes the 다루 label; then the headline lines come up one by one, one line of what the app does, and two
+// ways in: 시작하기 (onboarding, no account needed) or 이미 계정이 있습니다 (Google / email code). The sun can be
+// grabbed and pulled (JellyOrb); the headline drifts a little the other way, for depth. After a sign-in it waits for the first pull: a profile arriving moves the user to
 // Today through the root gate; no profile means onboarding.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Pressable, Text, TextInput, useWindowDimensions, View, type ViewInstance } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { Easing, FadeIn, interpolate, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { profileState } from '@diet/data';
 import { useEnv } from '@/lib/hooks';
 import { getSupabase } from '@/lib/env';
 import { sendEmailCode, signInWithGoogle, signOut, useAuthUser, verifyEmailCode } from '@/lib/auth';
 import { R, squircle, useTheme } from '@/lib/theme';
-import { Orb } from '@/components/ui';
+import { FONT } from '@/lib/fonts';
 import { Cta, TextButton } from './controls';
 import { GoogleMark } from './GoogleMark';
-import { ORB_TURN_DEG, splashHandoff, useSplashDone } from './handoff';
+import { MARK_SPACING, ORB_TURN_DEG, splashHandoff, useSplashDone } from './handoff';
+import { JellyOrb } from './JellyOrb';
 import { STEPS } from './answers';
 
 type Mode = 'start' | 'signin' | 'email' | 'code' | 'pulling' | 'failed';
@@ -28,6 +31,21 @@ function Rise({ p, k, reduce, children }: { p: SharedValue<number>; k: number; r
     return { opacity: v, transform: [{ translateY: reduce ? 0 : 12 * (1 - v) }] };
   });
   return <Animated.View style={st}>{children}</Animated.View>;
+}
+
+const HEADLINE = ['끼니와 운동,', '장볼 것까지', '정해 드립니다.'];
+
+/** One headline line, coming up from behind its own baseline after the hand-over. */
+function Line({ p, k, reduce, text, size, lh, color }: { p: SharedValue<number>; k: number; reduce: boolean; text: string; size: number; lh: number; color: string }) {
+  const st = useAnimatedStyle(() => {
+    const v = interpolate(p.get(), [0.04 + k * 0.1, 0.04 + k * 0.1 + 0.55], [0, 1], 'clamp');
+    return reduce ? { opacity: v } : { transform: [{ translateY: (1 - v) * lh }] };
+  });
+  return (
+    <View style={{ height: lh, overflow: 'hidden' }}>
+      <Animated.Text style={[{ color, fontFamily: FONT.display, fontSize: size, lineHeight: lh, letterSpacing: -0.6 }, st]}>{text}</Animated.Text>
+    </View>
+  );
 }
 
 export function Welcome() {
@@ -45,15 +63,19 @@ export function Welcome() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const orbRef = useRef<ViewInstance | null>(null);
+  const markRef = useRef<ViewInstance | null>(null);
+  const ox = useSharedValue(0);
+  const oy = useSharedValue(0);
+  const drift = useAnimatedStyle(() => ({ transform: [{ translateX: -ox.get() * 0.06 }, { translateY: -oy.get() * 0.06 }] }));
   const ORB = Math.round(Math.min(W * 0.8, 360));
   const small = H < 720;
 
   // the splash flies its orb here (see handoff.ts); ours stays hidden until it lands
-  useEffect(() => () => splashHandoff.setTarget(null), []);
+  useEffect(() => () => { splashHandoff.setTarget(null); splashHandoff.setMark(null); }, []);
   const p = useSharedValue(splashHandoff.isDone() ? 1 : 0);
   useEffect(() => {
     // under Reduce Motion the blocks only fade (no rise), which is fine to keep
-    if (splashDone) p.value = withTiming(1, { duration: reduce ? 300 : 900, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.Never });
+    if (splashDone) p.value = withTiming(1, { duration: reduce ? 300 : 1150, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.Never });
   }, [splashDone, reduce, p]);
 
   // after a sign-in: wait for the store's first pull, then decide. A pulled profile flips the root gate and
@@ -209,29 +231,33 @@ export function Welcome() {
   }
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: t.bg }}>
-      {/* the orb: a low sun in the top corner, partly off the edge */}
+      {/* the orb: a low sun in the top corner, partly off the edge, that can be pulled */}
       <View
         ref={orbRef}
-        pointerEvents="none"
+        pointerEvents={splashDone ? 'box-none' : 'none'}
         onLayout={() => orbRef.current?.measureInWindow((x, y, w) => { if (w > 0) splashHandoff.setTarget({ x, y, size: w }); })}
-        style={{ position: 'absolute', width: ORB, height: ORB, left: W - ORB * 0.74, top: insets.top - ORB * 0.2, opacity: splashDone ? 1 : 0 }}
+        style={{ position: 'absolute', zIndex: 1, width: ORB, height: ORB, left: W - ORB * 0.74, top: insets.top - ORB * 0.2, opacity: splashDone ? 1 : 0 }}
       >
-        <View style={{ width: ORB, height: ORB, transform: [{ rotate: `${ORB_TURN_DEG}deg` }] }}>
-          <Orb size={ORB} />
-        </View>
+        <JellyOrb size={ORB} turn={ORB_TURN_DEG} ox={ox} oy={oy} />
       </View>
 
       <View style={{ flex: 1, paddingTop: insets.top + 14, paddingHorizontal: 24, paddingBottom: insets.bottom + 12 }}>
-        <Rise p={p} k={0} reduce={reduce}>
-          <Text style={{ color: t.fg, fontSize: 18, fontWeight: '600', letterSpacing: 0.4 }}>다루</Text>
-        </Rise>
+        {/* the splash wordmark lands here (see handoff.ts); hidden until it has */}
+        <View
+          ref={markRef}
+          onLayout={() => markRef.current?.measureInWindow((x, y, w, h) => { if (w > 0) splashHandoff.setMark({ x, y, w, h }); })}
+          style={{ alignSelf: 'flex-start', opacity: splashDone ? 1 : 0 }}
+        >
+          <Text style={{ color: t.fg, fontFamily: FONT.mark, fontSize: 22, lineHeight: Math.round(22 * 1.3), letterSpacing: 22 * MARK_SPACING }}>다루</Text>
+        </View>
         <View style={{ flex: 1 }} />
-        <Rise p={p} k={1} reduce={reduce}>
-          <Text lineBreakStrategyIOS="hangul-word" accessibilityRole="header" style={{ color: t.fg, fontSize: small ? 36 : 42, fontWeight: '300', letterSpacing: -1.4, lineHeight: small ? 43 : 50 }}>
-            {'끼니와 운동,\n장볼 것까지\n정해 드립니다.'}
-          </Text>
-        </Rise>
+        <Animated.View style={drift} accessible accessibilityRole="header" accessibilityLabel={HEADLINE.join(' ')}>
+          {HEADLINE.map((line, k) => (
+            <Line key={line} p={p} k={k} reduce={reduce} text={line} size={small ? 38 : 46} lh={small ? 48 : 58} color={t.fg} />
+          ))}
+        </Animated.View>
         <Rise p={p} k={2} reduce={reduce}>
           <Text lineBreakStrategyIOS="hangul-word" style={{ color: t.muted, fontSize: 15.5, lineHeight: 23, marginTop: 14, marginBottom: small ? 22 : 34, maxWidth: 340 }}>
             질문 {STEPS.length}개에 답하면 하루 칼로리, 끼니별 식단, 쿠팡 장보기 목록이 바로 나옵니다.
@@ -242,5 +268,6 @@ export function Welcome() {
         </Rise>
       </View>
     </KeyboardAvoidingView>
+    </GestureHandlerRootView>
   );
 }

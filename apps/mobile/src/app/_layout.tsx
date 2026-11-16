@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
 import { AppState, useColorScheme } from 'react-native';
 import { useTheme } from '@/lib/theme';
 import { adoptLegacyProfile, profileState, type Env } from '@diet/data';
 import { getEnv, getSupabase } from '@/lib/env';
+import { FONT_FILES } from '@/lib/fonts';
 import { EnvContext } from '@/lib/hooks';
 import { useReminders } from '@/lib/notifications';
 import { useHealthSync } from '@/lib/health';
@@ -30,6 +32,8 @@ export default function RootLayout() {
   const scheme = useColorScheme();
   const t = useTheme();
   const [env, setEnv] = useState<Env | null>(null);
+  // the wordmark font must be ready before the splash draws; a font that fails to load falls back to the system one
+  const [fontsLoaded, fontError] = useFonts(FONT_FILES);
   const onboarded = useOnboarded(env);
   useReminders(env); // schedule today's reminders and handle notification buttons (cold start included)
   useHealthSync(env); // Apple Health steps/weight/sleep in, weight/workouts out, once connected in settings
@@ -58,7 +62,7 @@ export default function RootLayout() {
     return () => { sub.remove(); auth.subscription.unsubscribe(); };
   }, [env]);
 
-  if (!env) return null;
+  if (!env || !(fontsLoaded || fontError)) return null;
   return (
     <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
       <EnvContext.Provider value={env}>
