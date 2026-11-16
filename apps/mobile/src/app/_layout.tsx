@@ -11,6 +11,7 @@ import { EnvContext } from '@/lib/hooks';
 import { useReminders } from '@/lib/notifications';
 import { useHealthSync } from '@/lib/health';
 import { useNativeExtras } from '@/lib/native/bridge';
+import { useApplyUpdates } from '@/lib/updates';
 import { ToastProvider } from '@/components/ui';
 import { Splash } from '@/components/onboarding/Splash';
 import { useOnboarded } from '@/components/onboarding/gate';
@@ -38,6 +39,7 @@ export default function RootLayout() {
   useReminders(env); // schedule today's reminders and handle notification buttons (cold start included)
   useHealthSync(env); // Apple Health steps/weight/sleep in, weight/workouts out, once connected in settings
   useNativeExtras(env, onboarded); // widgets, Siri/Shortcuts actions, Live Activities
+  useApplyUpdates(); // fixes land on the next return to the app, not only the second cold start
 
   useEffect(() => {
     void getEnv().then((e) => {

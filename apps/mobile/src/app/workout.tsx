@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
+import { useHoldUpdates } from '@/lib/updates';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import { amrapOf, cueCountdown, cueDone, cueHoldEnd, cueHoldStart, cueMove, cueRest, cueRoundGo, repMultiplier, workoutRounds, type RoutineKey } from '@diet/core';
@@ -21,6 +22,7 @@ const C = 2 * Math.PI * 104;
 
 // Fixed rounds with rest, or a time-boxed repeat when the routine has minutes set.
 export default function WorkoutScreen() {
+  useHoldUpdates(); // never reload the app under a workout in progress (either player)
   const env = useEnv();
   const params = useLocalSearchParams<{ routine?: string }>();
   const key: RoutineKey = params.routine === 'B' ? 'B' : 'A';
