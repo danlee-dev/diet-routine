@@ -223,6 +223,7 @@ function TimelineRow({ it, v, nav, openId, setOpenId, mark }: { it: TimelineItem
   const time = it.at != null ? hhmm(it.at) : '';
   const tag = it.state === 'late' ? '지남' : it.state === 'skipped' ? '건너뜀' : it.state === 'next' ? '다음' : null;
   const m = it.meal;
+  const lg = it.logged;
   const kcal = it.entries?.length ? it.entries.reduce((a, e) => a + e.kcal, 0) : m?.kcal;
   const onMain = () => {
     if (it.kind === 'wake') { open(<TimeSheet />, { focus: '#wh-h' }); return; }
@@ -257,10 +258,18 @@ function TimelineRow({ it, v, nav, openId, setOpenId, mark }: { it: TimelineItem
         {it.kind === 'workout' && it.state === 'done' && <span className="done-tag"><Icon name="check" size="sm" />완료</span>}
         {it.kind === 'wake' && it.state !== 'done' && <button type="button" className="chip-btn" onClick={() => open(<TimeSheet />, { focus: '#wh-h' })}>기록</button>}
       </span>
-      {expanded && m && (
+      {/* always rendered so closing animates too; inert keeps the closed panel out of tab order */}
+      {it.kind === 'meal' && m && (
+        <div className="tl-drop" data-open={expanded || undefined} inert={!expanded}>
+        <div className="tl-drop-in sq">
         <div className="tl-detail">
-          <ul className="kv-list compact">{m.items.map((x) => <li key={x.name}><span>{x.name}</span><span>{x.amount}</span></li>)}</ul>
-          {m.swaps[0] && <p className="swap"><Icon name="arrow-left-right" size="sm" /><span>{m.swaps[0]}</span></p>}
+          <p className="tl-detail-k">
+            <b>{lg ? '먹은 것' : '계획'}</b>
+            <span>{lg ? `${lg.est ? '약 ' : ''}${fmt(lg.kcal)}kcal · 단백질 ${lg.protein}g` : `${m.est ? '약 ' : ''}${fmt(m.kcal)}kcal · 단백질 ${m.protein}g`}</span>
+          </p>
+          <ul className="kv-list compact">{(lg ? lg.lines : m.items).map((x, i) => <li key={`${x.name}-${i}`}><span>{x.name}</span><span>{x.amount}</span></li>)}</ul>
+          {lg?.notes.map((n) => <p key={n} className="tl-detail-note">{n}</p>)}
+          {!lg && m.swaps[0] && <p className="swap"><Icon name="arrow-left-right" size="sm" /><span>{m.swaps[0]}</span></p>}
           <div className="row">
             {it.state === 'done' || it.state === 'skipped'
               ? <button type="button" className="btn-ghost pill" onClick={() => { toggleMeal(env, v.ctx.key, m.key); setOpenId(null); }}><Icon name="rotate-ccw" size="sm" />기록 취소</button>
@@ -273,6 +282,8 @@ function TimelineRow({ it, v, nav, openId, setOpenId, mark }: { it: TimelineItem
             {it.state !== 'done' && it.state !== 'skipped' && <button type="button" className="link-btn quiet" onClick={() => { act.skip(m.key); setOpenId(null); }}>건너뛰기</button>}
             <button type="button" className="link-btn quiet" onClick={() => open(<MealEditSheet mealKey={m.key} />)}>식단 바꾸기</button>
           </div>
+        </div>
+        </div>
         </div>
       )}
     </li>

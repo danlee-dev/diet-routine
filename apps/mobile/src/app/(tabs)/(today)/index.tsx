@@ -3,7 +3,7 @@ import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'reac
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { amrapOf, fmt, hhmm, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey } from '@diet/core';
+import { amrapOf, fmt, hhmm, proteinGap, relText, SCEN, SKIP_ADVICE, sgn, timeLabel, workoutRounds, type MealKey, type PlannedMeal } from '@diet/core';
 import {
   coachMarks, focusNow, recommendation, remainingKcal, setWake, setWater, skipMeal, timeline, todayView, toggleMeal,
   type CoachMark, type Focus, type TimelineItem, type TodayView,
@@ -16,6 +16,7 @@ import { Btn, Orb, useToast } from '@/components/ui';
 import { RebalanceCard } from '@/components/RebalanceCard';
 import { SuggestionCards } from '@/components/SuggestionCards';
 import { RainNote } from '@/components/RainNote';
+import { Drop } from '@/components/Drop';
 import { openCoachAt } from '@/lib/coach';
 
 /**
@@ -218,6 +219,43 @@ function Reco({ v, t }: { v: TodayView; t: Theme }) {
   );
 }
 
+/**
+ * The opened meal: once eaten, the foods that were logged (the coach or "다르게 먹었어요" can differ from the
+ * plan); before that, the planned items. Spans the full list width under its row.
+ */
+function MealDetail({ it, m, v, t, close }: { it: TimelineItem; m: PlannedMeal; v: TodayView; t: Theme; close: () => void }) {
+  const env = useEnv();
+  const act = useMealActions(v);
+  const lg = it.logged;
+  const lines = lg ? lg.lines : m.items;
+  const nums = lg
+    ? `${lg.est ? '약 ' : ''}${fmt(lg.kcal)}kcal · 단백질 ${lg.protein}g`
+    : `${m.est ? '약 ' : ''}${fmt(m.kcal)}kcal · 단백질 ${m.protein}g`;
+  const small = { color: t.muted, fontSize: 12.5 };
+  return (
+    <View style={{ paddingHorizontal: 18, paddingTop: 15, paddingBottom: 14 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+        <Text style={[small, { fontWeight: '700', color: t.fg2 }]}>{lg ? '먹은 것' : '계획'}</Text>
+        <Text style={[small, { fontVariant: ['tabular-nums'] }]}>{nums}</Text>
+      </View>
+      <View style={{ gap: 10 }}>
+        {lines.map((x, i) => (
+          <View key={`${x.name}-${i}`} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 16 }}>
+            <Text style={{ flex: 1, color: t.fg, fontSize: 15, lineHeight: 20 }}>{x.name}</Text>
+            {!!x.amount && <Text style={{ maxWidth: '45%', textAlign: 'right', color: t.muted, fontSize: 15, lineHeight: 20 }}>{x.amount}</Text>}
+          </View>
+        ))}
+      </View>
+      {lg?.notes.map((n) => <Text key={n} style={[small, { marginTop: 10, lineHeight: 18 }]}>{n}</Text>)}
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+        {it.state === 'done' || it.state === 'skipped'
+          ? <Btn small kind="ghost" icon="rotate-ccw" label="기록 취소" onPress={() => { toggleMeal(env, v.ctx.key, m.key); close(); }} />
+          : <><Btn small kind="ghost" label="다르게 먹었어요" onPress={() => act.other(m.key)} /><Btn small kind="ghost" label="건너뛰기" onPress={() => { act.skip(m.key); close(); }} /></>}
+      </View>
+    </View>
+  );
+}
+
 function Row({ it, v, t, open, setOpen }: { it: TimelineItem; v: TodayView; t: Theme; open: string | null; setOpen: (s: string | null) => void }) {
   const env = useEnv();
   const act = useMealActions(v);
@@ -230,13 +268,21 @@ function Row({ it, v, t, open, setOpen }: { it: TimelineItem; v: TodayView; t: T
     : it.state === 'next' ? { width: 18, height: 18, borderWidth: 4, borderColor: t.fg, backgroundColor: t.bg } : { borderColor: t.ctrl, backgroundColor: t.bg, borderStyle: (it.state === 'late' || it.state === 'skipped' ? 'dashed' : 'solid') as 'dashed' | 'solid' };
   const done = it.state === 'done';
   return (
+    <View>
     <View style={{ flexDirection: 'row', paddingVertical: 10 }}>
       <Text style={{ width: 46, textAlign: 'right', color: t.muted, fontSize: 12.5, paddingTop: 2, fontVariant: ['tabular-nums'] }}>{it.at != null ? hhmm(it.at) : ''}</Text>
       <View style={{ width: 34, alignItems: 'center' }}>
         <View style={[{ width: 14, height: 14, borderRadius: 9, borderWidth: 1.5, marginTop: 4 }, dot]} />
       </View>
       <View style={{ flex: 1 }}>
-        <Pressable onPress={() => { if (it.kind === 'wake') router.push('/sheet/time'); else if (it.kind === 'meal') setOpen(expanded ? null : it.id); }}>
+        <Pressable
+          accessibilityState={it.kind === 'meal' ? { expanded } : undefined}
+          onPress={() => {
+            if (it.kind === 'wake') router.push('/sheet/time');
+            else if (it.kind === 'meal') { void Haptics.selectionAsync(); setOpen(expanded ? null : it.id); }
+          }}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+        >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ color: done || it.state === 'skipped' ? t.muted : t.fg, fontSize: 15.5, fontWeight: '600', textDecorationLine: done && it.kind === 'meal' ? 'line-through' : 'none' }}>{it.title}</Text>
             {tag && <Text style={{ fontSize: 11.5, fontWeight: '700', color: t.fg2, backgroundColor: t.surface2, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' }}>{tag}</Text>}
@@ -244,16 +290,6 @@ function Row({ it, v, t, open, setOpen }: { it: TimelineItem; v: TodayView; t: T
           </View>
           <Text numberOfLines={it.state === 'skipped' ? 3 : 1} style={{ color: it.state === 'skipped' ? t.fg2 : t.muted, fontSize: 13, marginTop: 1 }}>{it.sub}</Text>
         </Pressable>
-        {expanded && m && (
-          <View style={[{ marginTop: 8, padding: 12, borderRadius: R.sm, backgroundColor: t.surface, gap: 4 }, squircle]}>
-            {m.items.map((x) => <View key={x.name} style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: t.fg, fontSize: 14 }}>{x.name}</Text><Text style={{ color: t.muted, fontSize: 14 }}>{x.amount}</Text></View>)}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-              {done || it.state === 'skipped'
-                ? <Btn small kind="ghost" icon="rotate-ccw" label="기록 취소" onPress={() => { toggleMeal(env, v.ctx.key, m.key); setOpen(null); }} />
-                : <><Btn small kind="ghost" label="다르게 먹었어요" onPress={() => act.other(m.key)} /><Btn small kind="ghost" label="건너뛰기" onPress={() => { act.skip(m.key); setOpen(null); }} /></>}
-            </View>
-          </View>
-        )}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingLeft: 8 }}>
         {it.kind === 'meal' && m && (
@@ -271,6 +307,8 @@ function Row({ it, v, t, open, setOpen }: { it: TimelineItem; v: TodayView; t: T
         {it.kind === 'workout' && it.routine && it.state !== 'done' && <Btn small label="시작" icon="play" onPress={() => router.push({ pathname: '/workout', params: { routine: it.routine! } })} />}
         {it.kind === 'workout' && done && <Text style={{ color: t.fg, fontWeight: '600', fontSize: 13, paddingTop: 6 }}>완료</Text>}
       </View>
+    </View>
+    {it.kind === 'meal' && m && <Drop open={expanded} space={8} style={[{ borderRadius: R.md, backgroundColor: t.surface }, squircle]}><MealDetail it={it} m={m} v={v} t={t} close={() => setOpen(null)} /></Drop>}
     </View>
   );
 }

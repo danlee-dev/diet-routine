@@ -45,6 +45,55 @@ function loggedText(logged: MealEntryRow[]): string {
   }).join(', ');
 }
 
+export interface MealLine { name: string; amount: string }
+
+/** What an eaten meal's opened row lists: the foods that were logged, which can differ from the plan. */
+export interface LoggedDetail {
+  lines: MealLine[];
+  /** notes on the entries, like "안 먹음: 귤" for a partial meal */
+  notes: string[];
+  kcal: number;
+  protein: number;
+  /** some food was logged instead of the planned items */
+  offPlan: boolean;
+  /** an AI or typed estimate rather than the plan's numbers */
+  est: boolean;
+}
+
+const QTY = /^(.+?)\s+(\d[\d./~]*\S*)$/;
+
+/** A free-text entry as lines. The coach writes one entry for several foods, with the portions in amount_text
+ *  ("달걀 2개, 무가당 그릭요거트 100g + 꿀 2/3큰술"): those split per food, and a food ending in a number of
+ *  units shows the units on the right. */
+function textLines(e: MealEntryRow): MealLine[] {
+  const text = e.amount_text?.trim();
+  if (!text) return [{ name: e.name, amount: '' }];
+  const parts = text.split(/\s*,\s*/).filter(Boolean);
+  if (parts.length < 2) return [{ name: e.name, amount: text }];
+  return parts.map((p) => {
+    const m = p.includes('+') ? null : QTY.exec(p);
+    return m ? { name: m[1], amount: m[2] } : { name: p, amount: '' };
+  });
+}
+
+export function loggedDetail(logged: MealEntryRow[]): LoggedDetail {
+  const eaten = logged.filter((e) => e.kind !== 'skip');
+  const lines: MealLine[] = [];
+  const notes: string[] = [];
+  for (const e of eaten) {
+    if (Array.isArray(e.items) && e.items.length) lines.push(...e.items.map((x) => ({ name: x.name, amount: x.amount ?? '' })));
+    else lines.push(...textLines(e));
+    if (e.note && e.kind !== 'plan') notes.push(e.note);
+  }
+  return {
+    lines, notes,
+    kcal: Math.round(eaten.reduce((a, e) => a + Number(e.kcal), 0)),
+    protein: Math.round(eaten.reduce((a, e) => a + Number(e.protein_g), 0)),
+    offPlan: eaten.some((e) => e.kind !== 'plan'),
+    est: eaten.some((e) => e.source !== 'plan' && e.source !== 'preset'),
+  };
+}
+
 export type TimelineState = 'done' | 'next' | 'late' | 'upcoming' | 'skipped';
 
 export interface TimelineItem {
@@ -57,6 +106,8 @@ export interface TimelineItem {
   state: TimelineState;
   meal?: PlannedMeal;
   entries?: MealEntryRow[];
+  /** set once the meal is eaten: what the opened row lists instead of the plan */
+  logged?: LoggedDetail;
   routine?: RoutineKey;
 }
 
@@ -75,6 +126,7 @@ export function timeline(env: Env, v: TodayView): TimelineItem[] {
       id: m.key, kind: 'meal', at: m.at ?? null, title: m.name,
       sub: skipped ? SKIP_ADVICE[m.key] : eaten ? loggedText(logged) : m.items.map((x) => x.name).join(' · '),
       icon: m.icon, state: skipped ? 'skipped' : eaten ? 'done' : m.key === nextKey ? (late ? 'late' : 'next') : late ? 'late' : 'upcoming', meal: m, entries: logged,
+      logged: eaten && !skipped ? loggedDetail(logged) : undefined,
     });
   }
   const wp = workoutPlan(env, v);
